@@ -1,0 +1,127 @@
+import { Browser, BrowserContext, chromium } from 'playwright';
+import {
+  normalizeUrl,
+  isSameDomain,
+  shouldSkipUrl,
+  resolveUrl,
+  isValidUrl,
+} from '../../utils/urlUtils';
+import { logger } from '../../utils/logger';
+import { CrawlPageResult } from './CheerioCrawler';
+
+let browserInstance: Browser | null = null;
+
+async function getBrowser(): Promise<Browser> {
+  if (!browserInstance || !browserInstance.isConnected()) {
+    browserInstance = await chromium.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+      ],
+    });
+    logger.info('Playwright browser launched');
+  }
+  return browserInstance;
+}
+
+export async function closeBrowser(): Promise<void> {
+  if (browserInstance) {
+    await browserInstance.close();
+    browserInstance = null;
+  }
+}
+
+export class PlaywrightCrawler {
+  private context: BrowserContext | null = null;
+
+  async init(): Promise<void> {
+    const browser = await getBrowser();
+    this.context = await browser.newContext({
+      userAgent:
+        'Mozilla/5.0 (compatible; WIPBot/1.0; +https://webintelligence.io/bot)',
+      ignoreHTTPSErrors: true,
+      javaScriptEnabled: true,
+    });
+  }
+
+  async fetchPage(url: string): Promise<CrawlPageResult | null> {
+    if (!this.context) await this.init();
+
+    const page = await this.context!.newPage();
+
+    try {
+      // Block unnecessary resources to speed up crawl
+      await page.route('**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,mp4,mp3}', (route) =>
+        route.abort()
+      );
+
+      const response = await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 20000,
+      });
+
+      if (!response) return null;
+
+      const statusCode = response.status();
+      if (statusCode >= 400) {
+        return null;
+      }
+
+      // Wait a bit for JS rendering
+      await page.waitForTimeout(1000);
+
+      const html = await page.content();
+      const discoveredLinks = await this.extractLinks(page, url);
+
+      return {
+        url,
+        html,
+        statusCode,
+        contentLength: html.length,
+        discoveredLinks,
+      };
+    } catch (error) {
+      logger.debug(`Playwright fetch failed for ${url}: ${(error as Error).message}`);
+      return null;
+    } finally {
+      await page.close();
+    }
+  }
+
+  private async extractLinks(
+    page: import('playwright').Page,
+    baseUrl: string
+  ): Promise<string[]> {
+    const hrefs = await page.$$eval('a[href]', (els) =>
+      els.map((el) => el.getAttribute('href')).filter(Boolean)
+    );
+
+    const links: string[] = [];
+    for (const href of hrefs) {
+      if (!href) continue;
+      if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('javascript:'))
+        continue;
+
+      const resolved = resolveUrl(baseUrl, href);
+      if (!resolved) continue;
+      if (!isValidUrl(resolved)) continue;
+      if (!isSameDomain(resolved, baseUrl)) continue;
+      if (shouldSkipUrl(resolved)) continue;
+
+      links.push(normalizeUrl(resolved));
+    }
+
+    return [...new Set(links)];
+  }
+
+  async close(): Promise<void> {
+    if (this.context) {
+      await this.context.close();
+      this.context = null;
+    }
+  }
+}
