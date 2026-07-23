@@ -7,7 +7,7 @@ import { CrawlResult } from '../models/CrawlResult.model';
 import { logger } from '../utils/logger';
 
 // ─── Platform Stats ────────────────────────────────────────────────────────
-export async function getPlatformStats(req: Request, res: Response): Promise<void> {
+export async function getPlatformStats(_req: Request, res: Response): Promise<void> {
   try {
     const [
       totalUsers,

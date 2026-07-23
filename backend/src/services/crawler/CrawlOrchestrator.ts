@@ -7,7 +7,7 @@ import { CrawlResult } from '../../models/CrawlResult.model';
 import { CrawlJob } from '../../models/CrawlJob.model';
 import { normalizeUrl, shouldSkipUrl } from '../../utils/urlUtils';
 import { logger } from '../../utils/logger';
-import { io } from '../../app';
+import { emitToJob } from '../socketService';
 import mongoose from 'mongoose';
 
 export interface CrawlOptions {
@@ -149,7 +149,7 @@ export class CrawlOrchestrator {
         );
 
         // Emit socket progress
-        io.to(`job:${jobId}`).emit('job:progress', {
+        emitToJob(jobId, 'job:progress', {
           jobId,
           progress,
           pagesCrawled,

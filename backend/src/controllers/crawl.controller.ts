@@ -3,7 +3,8 @@ import { z } from 'zod';
 import mongoose from 'mongoose';
 import { CrawlJob } from '../models/CrawlJob.model';
 import { CrawlResult } from '../models/CrawlResult.model';
-import { addCrawlJob } from '../queues/crawl.queue';
+import { User } from '../models/User.model';
+import { addCrawlJob } from '../queue/crawl.queue';
 import { logger } from '../utils/logger';
 import { isValidUrl } from '../utils/urlUtils';
 
@@ -35,16 +36,22 @@ export async function submitCrawlJob(req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Check active job limit per user
+    // Check active job limit per user (respects the per-user configurable limit)
+    const user = await User.findById(req.user!.userId).select('crawlLimit isActive');
+    if (!user || !user.isActive) {
+      res.status(403).json({ success: false, message: 'Account not found or deactivated' });
+      return;
+    }
+
     const activeCount = await CrawlJob.countDocuments({
       userId: req.user!.userId,
       status: { $in: ['pending', 'queued', 'running'] },
     });
 
-    if (activeCount >= 5) {
+    if (activeCount >= user.crawlLimit) {
       res.status(429).json({
         success: false,
-        message: 'You have reached the max limit of 5 active crawl jobs',
+        message: `You have reached your limit of ${user.crawlLimit} active crawl jobs`,
       });
       return;
     }

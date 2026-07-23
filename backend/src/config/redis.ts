@@ -1,4 +1,5 @@
 import IORedis from 'ioredis';
+import type { ConnectionOptions } from 'bullmq';
 import { env } from './env';
 import { logger } from '../utils/logger';
 
@@ -30,10 +31,12 @@ class RedisClient {
 
 export const redis = RedisClient.getInstance();
 
-// Separate connection for BullMQ (must have maxRetriesPerRequest: null)
-export function createBullMQConnection(): IORedis {
+// Separate connection for BullMQ (must have maxRetriesPerRequest: null).
+// BullMQ bundles its own copy of ioredis, so the instance types don't line up
+// nominally even though they are runtime-compatible — cast in this one spot.
+export function createBullMQConnection(): ConnectionOptions {
   return new IORedis(env.REDIS_URL, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
-  });
+  }) as unknown as ConnectionOptions;
 }

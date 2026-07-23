@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -9,9 +9,14 @@ import { env } from './config/env';
 import { connectDB } from './config/db';
 import { logger } from './utils/logger';
 import { globalLimiter } from './middleware/rateLimit.middleware';
+import { initSocket } from './services/socketService';
+import { startCrawlWorker } from './queue/crawl.worker';
+import { closeBrowser } from './services/crawler/PlaywrightCrawler';
 
 // Routes
 import authRoutes from './routes/auth.routes';
+import crawlRoutes from './routes/crawl.routes';
+import adminRoutes from './routes/admin.routes';
 
 // ─── App Setup ─────────────────────────────────────────────────────────────
 const app = express();
@@ -26,22 +31,7 @@ export const io = new SocketServer(httpServer, {
   },
 });
 
-io.on('connection', (socket) => {
-  logger.debug(`Socket connected: ${socket.id}`);
-
-  socket.on('join:job', (jobId: string) => {
-    socket.join(`job:${jobId}`);
-    logger.debug(`Socket ${socket.id} joined job:${jobId}`);
-  });
-
-  socket.on('leave:job', (jobId: string) => {
-    socket.leave(`job:${jobId}`);
-  });
-
-  socket.on('disconnect', () => {
-    logger.debug(`Socket disconnected: ${socket.id}`);
-  });
-});
+initSocket(io);
 
 // ─── Middleware ────────────────────────────────────────────────────────────
 app.use(helmet());
@@ -53,6 +43,8 @@ app.use(globalLimiter);
 
 // ─── Routes ───────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
+app.use('/api/crawl', crawlRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -64,15 +56,36 @@ app.use((_req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
+// Central error handler (last resort for anything that slips past controllers)
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error('Unhandled error:', err);
+  res.status(500).json({ success: false, message: 'Internal server error' });
+});
+
 // ─── Start ─────────────────────────────────────────────────────────────────
 async function bootstrap(): Promise<void> {
   await connectDB();
 
+  // Start the BullMQ worker that processes crawl jobs in-process.
+  const worker = startCrawlWorker();
+
   const port = parseInt(env.PORT, 10);
-  httpServer.listen(port, () => 
+  httpServer.listen(port, () => {
     logger.info(`🚀 Server running on http://localhost:${port}`);
     logger.info(`🌍 Environment: ${env.NODE_ENV}`);
   });
+
+  // ─── Graceful shutdown ───────────────────────────────────────────────────
+  const shutdown = async (signal: string): Promise<void> => {
+    logger.info(`${signal} received, shutting down gracefully...`);
+    httpServer.close();
+    await worker.close();
+    await closeBrowser();
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
 bootstrap().catch((err) => {

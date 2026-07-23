@@ -4,7 +4,7 @@ import { CRAWL_QUEUE_NAME, CrawlJobPayload } from './crawl.queue';
 import { CrawlOrchestrator } from '../services/crawler/CrawlOrchestrator';
 import { CrawlJob } from '../models/CrawlJob.model';
 import { logger } from '../utils/logger';
-import { io } from '../app';
+import { emitToJob } from '../services/socketService';
 
 const CONCURRENCY = 3; // max parallel crawl jobs
 
@@ -22,7 +22,7 @@ export function startCrawlWorker(): Worker<CrawlJobPayload> {
         bullJobId: job.id,
       });
 
-      io.to(`job:${jobId}`).emit('job:started', { jobId });
+      emitToJob(jobId, 'job:started', { jobId });
 
       const orchestrator = new CrawlOrchestrator();
       await orchestrator.run({ jobId, ...options });
@@ -34,7 +34,7 @@ export function startCrawlWorker(): Worker<CrawlJobPayload> {
         completedAt: new Date(),
       });
 
-      io.to(`job:${jobId}`).emit('job:completed', { jobId });
+      emitToJob(jobId, 'job:completed', { jobId });
       logger.info(`Crawl job completed: ${jobId}`);
     },
     {
@@ -54,7 +54,7 @@ export function startCrawlWorker(): Worker<CrawlJobPayload> {
         completedAt: new Date(),
       });
 
-      io.to(`job:${jobId}`).emit('job:failed', {
+      emitToJob(jobId, 'job:failed', {
         jobId,
         error: err.message,
       });

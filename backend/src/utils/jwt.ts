@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+import jwt, { type SignOptions } from 'jsonwebtoken';
 import { env } from '../config/env';
 import { IUser } from '../models/User.model';
 
@@ -8,20 +8,20 @@ export interface JwtPayload {
   email: string;
 }
 
+function buildPayload(user: Pick<IUser, '_id' | 'role' | 'email'>): JwtPayload {
+  return { userId: user._id.toString(), role: user.role, email: user.email };
+}
+
 export function signAccessToken(user: Pick<IUser, '_id' | 'role' | 'email'>): string {
-  return jwt.sign(
-    { userId: user._id.toString(), role: user.role, email: user.email } as JwtPayload,
-    env.JWT_SECRET,
-    { expiresIn: env.JWT_EXPIRES_IN }
-  );
+  const options: SignOptions = { expiresIn: env.JWT_EXPIRES_IN as SignOptions['expiresIn'] };
+  return jwt.sign(buildPayload(user), env.JWT_SECRET, options);
 }
 
 export function signRefreshToken(user: Pick<IUser, '_id' | 'role' | 'email'>): string {
-  return jwt.sign(
-    { userId: user._id.toString(), role: user.role, email: user.email } as JwtPayload,
-    env.JWT_REFRESH_SECRET,
-    { expiresIn: env.JWT_REFRESH_EXPIRES_IN }
-  );
+  const options: SignOptions = {
+    expiresIn: env.JWT_REFRESH_EXPIRES_IN as SignOptions['expiresIn'],
+  };
+  return jwt.sign(buildPayload(user), env.JWT_REFRESH_SECRET, options);
 }
 
 export function verifyAccessToken(token: string): JwtPayload {
