@@ -37,3 +37,12 @@ export function formatRelative(value?: string | Date | null): string {
 export function truncate(text: string, max = 80): string {
   return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
 }
+
+/** Human-friendly byte size, e.g. "4.7 MB", "312 KB". */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** i;
+  return `${i === 0 ? value : value.toFixed(1)} ${units[i]}`;
+}

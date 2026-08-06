@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/Badge';
 import { ProgressBar, PageLoader, ErrorState } from '@/components/ui/Misc';
 import { ResultsTable } from '@/components/crawl/ResultsTable';
+import { FeaturedResult } from '@/components/crawl/FeaturedResult';
 import {
   useGetJobQuery,
   useGetJobResultsQuery,
@@ -24,6 +25,7 @@ export default function JobDetail() {
   const navigate = useNavigate();
   const [minScore, setMinScore] = useState(0);
   const [page, setPage] = useState(1);
+  const [selectedId, setSelectedId] = useState<string>();
 
   const jobQuery = useGetJobQuery(jobId!, {
     skip: !jobId,
@@ -60,6 +62,8 @@ export default function JobDetail() {
 
   const results = resultsQuery.data?.data.results ?? [];
   const resultsPagination = resultsQuery.data?.data.pagination;
+  // Default selection is the most-weighted result (results come primary-first).
+  const selected = results.find((r) => r._id === selectedId) ?? results[0];
 
   const stats = [
     { label: 'Discovered', value: pagesDiscovered, icon: Globe },
@@ -175,7 +179,16 @@ export default function JobDetail() {
         {resultsQuery.isLoading ? (
           <PageLoader label="Loading results…" />
         ) : (
-          <ResultsTable results={results} />
+          <div className="space-y-5">
+            {selected && (
+              <FeaturedResult key={selected._id} jobId={job._id} result={selected} />
+            )}
+            <ResultsTable
+              results={results}
+              selectedId={selected?._id}
+              onSelect={(r) => setSelectedId(r._id)}
+            />
+          </div>
         )}
 
         {resultsPagination && resultsPagination.pages > 1 && (

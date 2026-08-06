@@ -4,6 +4,8 @@ import {
   listCrawlJobs,
   getCrawlJob,
   getJobResults,
+  getResultDetail,
+  setResultVisibility,
   cancelCrawlJob,
 } from '../controllers/crawl.controller';
 import { authenticate } from '../middleware/auth.middleware';
@@ -18,6 +20,8 @@ router.post('/', crawlLimiter, submitCrawlJob);
 router.get('/', listCrawlJobs);
 router.get('/:jobId', getCrawlJob);
 router.get('/:jobId/results', getJobResults);
+router.get('/:jobId/results/:resultId', getResultDetail);
+router.patch('/:jobId/results/:resultId/visibility', setResultVisibility);
 router.patch('/:jobId/cancel', cancelCrawlJob);
 
 export default router;

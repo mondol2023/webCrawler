@@ -184,10 +184,12 @@ export async function getJobResults(req: Request, res: Response): Promise<void> 
 
     const [results, total] = await Promise.all([
       CrawlResult.find(filter)
-        .sort({ relevanceScore: -1 })
+        // Primary (most-weighted) result first, then by score.
+        .sort({ isPrimary: -1, relevanceScore: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
-        .select('-extracted.paragraphs -extracted.links') // keep response lean
+        // Keep the list lean — full text/links/cache load on demand per result.
+        .select('-extracted.paragraphs -extracted.links -cache')
         .lean(),
       CrawlResult.countDocuments(filter),
     ]);
@@ -202,6 +204,100 @@ export async function getJobResults(req: Request, res: Response): Promise<void> 
   } catch (error) {
     logger.error('Get job results error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch results' });
+  }
+}
+
+// ─── Get Single Result (with cached snapshot) ──────────────────────────────
+export async function getResultDetail(req: Request, res: Response): Promise<void> {
+  try {
+    const { jobId, resultId } = req.params;
+
+    if (!mongoose.isValidObjectId(jobId) || !mongoose.isValidObjectId(resultId)) {
+      res.status(400).json({ success: false, message: 'Invalid identifier' });
+      return;
+    }
+
+    const result = await CrawlResult.findOne({
+      _id: resultId,
+      jobId,
+      userId: req.user!.userId,
+    }).lean();
+
+    if (!result) {
+      res.status(404).json({ success: false, message: 'Result not found' });
+      return;
+    }
+
+    res.json({ success: true, data: { result } });
+  } catch (error) {
+    logger.error('Get result detail error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch result' });
+  }
+}
+
+// ─── Toggle Result Visibility (public / private) ───────────────────────────
+const visibilitySchema = z.object({ isPublic: z.boolean() });
+
+export async function setResultVisibility(req: Request, res: Response): Promise<void> {
+  try {
+    const { jobId, resultId } = req.params;
+    const body = visibilitySchema.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ success: false, message: 'isPublic (boolean) is required' });
+      return;
+    }
+
+    if (!mongoose.isValidObjectId(jobId) || !mongoose.isValidObjectId(resultId)) {
+      res.status(400).json({ success: false, message: 'Invalid identifier' });
+      return;
+    }
+
+    const result = await CrawlResult.findOneAndUpdate(
+      { _id: resultId, jobId, userId: req.user!.userId },
+      { $set: { isPublic: body.data.isPublic } },
+      { new: true }
+    ).select('_id isPublic');
+
+    if (!result) {
+      res.status(404).json({ success: false, message: 'Result not found' });
+      return;
+    }
+
+    res.json({
+      success: true,
+      message: body.data.isPublic ? 'Result is now public' : 'Result is now private',
+      data: { result: { _id: result._id, isPublic: result.isPublic } },
+    });
+  } catch (error) {
+    logger.error('Set result visibility error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update visibility' });
+  }
+}
+
+// ─── Public Result (no auth; only if the owner made it public) ─────────────
+export async function getPublicResult(req: Request, res: Response): Promise<void> {
+  try {
+    const { resultId } = req.params;
+
+    if (!mongoose.isValidObjectId(resultId)) {
+      res.status(400).json({ success: false, message: 'Invalid identifier' });
+      return;
+    }
+
+    const result = await CrawlResult.findOne({ _id: resultId, isPublic: true })
+      .select('-userId') // don't leak the owner
+      .lean();
+
+    if (!result) {
+      // 404 for both "missing" and "private" so visibility can't be probed.
+      res.status(404).json({ success: false, message: 'Result not found or not public' });
+      return;
+    }
+
+    res.json({ success: true, data: { result } });
+  } catch (error) {
+    logger.error('Get public result error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch result' });
   }
 }
 

@@ -10,6 +10,7 @@ import Register from '@/pages/Register';
 import Dashboard from '@/pages/Dashboard';
 import CrawlSubmit from '@/pages/CrawlSubmit';
 import JobDetail from '@/pages/JobDetail';
+import PublicResult from '@/pages/PublicResult';
 import AdminDashboard from '@/pages/admin/AdminDashboard';
 import UserManagement from '@/pages/admin/UserManagement';
 
@@ -28,6 +29,9 @@ export default function App() {
 
   return (
     <Routes>
+      {/* Fully public — no auth, works for signed-out visitors */}
+      <Route path="/share/results/:resultId" element={<PublicResult />} />
+
       {/* Public */}
       <Route element={<PublicOnlyRoute />}>
         <Route path="/login" element={<Login />} />

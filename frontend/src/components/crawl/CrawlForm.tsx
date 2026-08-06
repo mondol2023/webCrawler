@@ -60,16 +60,16 @@ export function CrawlForm({
       />
 
       <TagInput
-        label="Keywords"
+        label="Keywords (optional)"
         value={keywords}
         onChange={setKeywords}
         max={20}
         placeholder="e.g. pricing, api, security"
-        hint="Pages are scored by how often these appear."
+        hint="Pages are scored by how often these appear. Leave empty to crawl without keyword scoring."
       />
 
       <TagInput
-        label="Phrases"
+        label="Phrases (optional)"
         value={phrases}
         onChange={setPhrases}
         max={10}

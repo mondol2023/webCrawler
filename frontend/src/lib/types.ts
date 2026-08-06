@@ -45,14 +45,30 @@ export interface CrawlJob {
   updatedAt: string;
 }
 
+export interface VideoItem {
+  url: string;
+  type: 'file' | 'embed';
+  poster?: string;
+}
+
 export interface ExtractedData {
   headings: string[];
   paragraphs: string[];
   links: string[];
   images: string[];
+  videos: VideoItem[];
   metaTitle?: string;
   metaDescription?: string;
   structuredData: Record<string, unknown>[];
+}
+
+export interface CachedContent {
+  text: string;
+  images: string[];
+  videos: VideoItem[];
+  sizeBytes: number;
+  truncated: boolean;
+  cachedAt: string;
 }
 
 export interface CrawlResult {
@@ -69,6 +85,10 @@ export interface CrawlResult {
   extracted: ExtractedData;
   rawTextSnippet: string;
   depth: number;
+  isPrimary: boolean;
+  isPublic: boolean;
+  /** Present only on the primary result's detail response. */
+  cache?: CachedContent;
   createdAt: string;
 }
 

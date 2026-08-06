@@ -17,6 +17,7 @@ import { closeBrowser } from './services/crawler/PlaywrightCrawler';
 import authRoutes from './routes/auth.routes';
 import crawlRoutes from './routes/crawl.routes';
 import adminRoutes from './routes/admin.routes';
+import publicRoutes from './routes/public.routes';
 
 // ─── App Setup ─────────────────────────────────────────────────────────────
 const app = express();
@@ -45,6 +46,7 @@ app.use(globalLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/crawl', crawlRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/public', publicRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
