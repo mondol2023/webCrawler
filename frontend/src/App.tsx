@@ -10,6 +10,7 @@ import Register from '@/pages/Register';
 import Dashboard from '@/pages/Dashboard';
 import CrawlSubmit from '@/pages/CrawlSubmit';
 import JobDetail from '@/pages/JobDetail';
+import MediaDownloader from '@/pages/MediaDownloader';
 import PublicResult from '@/pages/PublicResult';
 import AdminDashboard from '@/pages/admin/AdminDashboard';
 import UserManagement from '@/pages/admin/UserManagement';
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/crawl/new" element={<CrawlSubmit />} />
           <Route path="/jobs/:jobId" element={<JobDetail />} />
+          <Route path="/media" element={<MediaDownloader />} />
 
           <Route element={<AdminRoute />}>
             <Route path="/admin" element={<AdminDashboard />} />

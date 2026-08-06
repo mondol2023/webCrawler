@@ -14,6 +14,20 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
   CLIENT_URL: z.string().default('http://localhost:5173'),
   BCRYPT_ROUNDS: z.string().default('12'),
+
+  // ─── Media downloader ─────────────────────────────────────────────────────
+  /**
+   * Default proxy for media probes/downloads, e.g. `socks5://user:pass@host:1080`.
+   * Optional — a request can supply its own instead. Only ever used to change
+   * where a request originates from (the geo-restriction case).
+   */
+  MEDIA_PROXY_URL: z.string().optional(),
+  /** Path to the yt-dlp binary. Falls back to `yt-dlp` on PATH. */
+  YTDLP_PATH: z.string().optional(),
+  /** Where downloaded files are written. */
+  MEDIA_DOWNLOAD_DIR: z.string().default('./downloads'),
+  /** Per-download size cap in bytes (default 2 GB). */
+  MEDIA_MAX_BYTES: z.string().default('2147483648'),
 });
 
 const parsed = envSchema.safeParse(process.env);

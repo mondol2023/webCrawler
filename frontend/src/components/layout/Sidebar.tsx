@@ -5,6 +5,7 @@ import {
   ShieldCheck,
   Users,
   Radar,
+  Download,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ interface NavItem {
 const userNav: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/crawl/new', label: 'New Crawl', icon: PlusCircle },
+  { to: '/media', label: 'Media Downloader', icon: Download },
 ];
 
 const adminNav: NavItem[] = [

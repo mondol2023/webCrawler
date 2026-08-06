@@ -23,3 +23,21 @@ export const crawlLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, message: 'Too many crawl requests, please slow down.' },
 });
+
+// A probe launches a headless browser and possibly a yt-dlp process, so it is
+// far more expensive than a normal request — keep it tight.
+export const mediaProbeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many media scans, please slow down.' },
+});
+
+export const mediaDownloadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many download requests, please slow down.' },
+});

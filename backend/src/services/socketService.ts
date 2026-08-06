@@ -24,6 +24,17 @@ export function initSocket(io: SocketServer): void {
       socket.leave(`job:${jobId}`);
     });
 
+    // Media downloads are per-user rather than per-job, so clients subscribe
+    // to their own room to receive progress for every download they started.
+    socket.on('join:user', (userId: string) => {
+      socket.join(`user:${userId}`);
+      logger.debug(`Socket ${socket.id} joined user:${userId}`);
+    });
+
+    socket.on('leave:user', (userId: string) => {
+      socket.leave(`user:${userId}`);
+    });
+
     socket.on('disconnect', () => {
       logger.debug(`Socket disconnected: ${socket.id}`);
     });
@@ -37,4 +48,13 @@ export function emitToJob(jobId: string, event: string, payload: unknown): void 
     return;
   }
   ioRef.to(`job:${jobId}`).emit(event, payload);
+}
+
+/** Emit an event to every socket the given user has open (media progress). */
+export function emitToUser(userId: string, event: string, payload: unknown): void {
+  if (!ioRef) {
+    logger.warn(`emitToUser called before socket init (event: ${event})`);
+    return;
+  }
+  ioRef.to(`user:${userId}`).emit(event, payload);
 }

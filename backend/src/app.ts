@@ -11,11 +11,13 @@ import { logger } from './utils/logger';
 import { globalLimiter } from './middleware/rateLimit.middleware';
 import { initSocket } from './services/socketService';
 import { startCrawlWorker } from './queue/crawl.worker';
+import { startMediaWorker } from './queue/media.worker';
 import { closeBrowser } from './services/crawler/PlaywrightCrawler';
 
 // Routes
 import authRoutes from './routes/auth.routes';
 import crawlRoutes from './routes/crawl.routes';
+import mediaRoutes from './routes/media.routes';
 import adminRoutes from './routes/admin.routes';
 import publicRoutes from './routes/public.routes';
 
@@ -45,6 +47,7 @@ app.use(globalLimiter);
 // ─── Routes ───────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/crawl', crawlRoutes);
+app.use('/api/media', mediaRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/public', publicRoutes);
 
@@ -68,8 +71,10 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 async function bootstrap(): Promise<void> {
   await connectDB();
 
-  // Start the BullMQ worker that processes crawl jobs in-process.
+  // Start the BullMQ workers that process jobs in-process. Separate queues so
+  // a long media download never blocks a crawl.
   const worker = startCrawlWorker();
+  const mediaWorker = startMediaWorker();
 
   const port = parseInt(env.PORT, 10);
   httpServer.listen(port, () => {
@@ -82,6 +87,7 @@ async function bootstrap(): Promise<void> {
     logger.info(`${signal} received, shutting down gracefully...`);
     httpServer.close();
     await worker.close();
+    await mediaWorker.close();
     await closeBrowser();
     process.exit(0);
   };

@@ -11,7 +11,12 @@ import { CrawlPageResult } from './CheerioCrawler';
 
 let browserInstance: Browser | null = null;
 
-async function getBrowser(): Promise<Browser> {
+/**
+ * Shared, lazily-launched Chromium instance. Exported so other subsystems (the
+ * media scanner) reuse this single process instead of launching their own —
+ * `closeBrowser()` on shutdown then covers all of them.
+ */
+export async function getBrowser(): Promise<Browser> {
   if (!browserInstance || !browserInstance.isConnected()) {
     browserInstance = await chromium.launch({
       headless: true,
