@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Download, Sparkles, TerminalSquare, Clock3 } from 'lucide-react';
+import { Download, Sparkles, TerminalSquare, Clock3, KeyRound } from 'lucide-react';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { ErrorState, Spinner } from '@/components/ui/Misc';
 import { Reveal } from '@/components/ui/Reveal';
@@ -20,6 +20,12 @@ import { getApiErrorMessage } from '@/lib/apiError';
 import { formatBytes } from '@/lib/utils';
 import type { ProbeOutcome } from '@/lib/types';
 
+interface ProbeParams {
+  url: string;
+  proxyUrl: string;
+  respectRobotsTxt: boolean;
+}
+
 /**
  * Scan any page for video, audio and images, then pick what to download.
  *
@@ -35,13 +41,21 @@ export default function MediaDownloader() {
   const [proxyOpen, setProxyOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | undefined>();
+  // Kept so the robots notice can re-run the *same* scan with the switch off.
+  const [lastRequest, setLastRequest] = useState<ProbeParams | null>(null);
 
   const { data: caps } = useGetMediaCapabilitiesQuery();
   const [probe, probeState] = useProbeMediaMutation();
   const [startDownloads, startState] = useStartMediaDownloadsMutation();
   const [deleteDownload] = useDeleteMediaDownloadMutation();
 
-  const { data: listData, refetch } = useListMediaDownloadsQuery({ page: 1, limit: 20 });
+  // The queue is normally driven by socket events, but a dropped connection
+  // would otherwise leave a finished file invisible until a manual reload.
+  // A slow poll makes the list self-correcting; it pauses in a hidden tab.
+  const { data: listData, refetch } = useListMediaDownloadsQuery(
+    { page: 1, limit: 20 },
+    { pollingInterval: 10_000, skipPollingIfUnfocused: true }
+  );
 
   // A terminal socket event means the record on the server changed shape
   // (file name, size, error) — refetch once rather than trusting the overlay.
@@ -54,13 +68,10 @@ export default function MediaDownloader() {
   const downloads = useMemo(() => listData?.data.downloads ?? [], [listData]);
   const capabilities = caps?.data;
 
-  const handleProbe = async (params: {
-    url: string;
-    proxyUrl: string;
-    respectRobotsTxt: boolean;
-  }) => {
+  const handleProbe = async (params: ProbeParams) => {
     setNotice(null);
     setProxyUrl(params.proxyUrl);
+    setLastRequest(params);
     setSelected(new Set());
     setAudioOnly(new Set());
     try {
@@ -184,6 +195,12 @@ export default function MediaDownloader() {
                   <span className="text-amber-600 dark:text-amber-400">not installed</span>
                 )}
               </span>
+              {capabilities?.cookiesConfigured && (
+                <span className="inline-flex items-center gap-1.5">
+                  <KeyRound className="h-3.5 w-3.5" />
+                  Session configured
+                </span>
+              )}
               {capabilities && (
                 <span>Max {formatBytes(capabilities.maxDownloadBytes)} per file</span>
               )}
@@ -226,6 +243,11 @@ export default function MediaDownloader() {
             restriction={outcome.restriction}
             proxyActive={outcome.usedProxy}
             onUseProxy={() => setProxyOpen(true)}
+            onIgnoreRobots={
+              lastRequest
+                ? () => void handleProbe({ ...lastRequest, respectRobotsTxt: false })
+                : undefined
+            }
           />
 
           {outcome.warnings.length > 0 && (

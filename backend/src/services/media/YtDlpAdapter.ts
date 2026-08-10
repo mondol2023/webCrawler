@@ -19,6 +19,30 @@ import { NO_RESTRICTION } from './types';
 
 const BIN = env.YTDLP_PATH || 'yt-dlp';
 
+/**
+ * A desktop browser UA. Several sites (Instagram among them) serve a stripped
+ * "install the app" page to yt-dlp's default UA and no media at all.
+ */
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+/**
+ * Cookie flags, when the operator configured a session for the server to use.
+ * Empty by default — the tool authenticates as nobody unless told otherwise.
+ */
+function authArgs(): string[] {
+  if (env.YTDLP_COOKIES_FILE) return ['--cookies', env.YTDLP_COOKIES_FILE];
+  if (env.YTDLP_COOKIES_FROM_BROWSER) {
+    return ['--cookies-from-browser', env.YTDLP_COOKIES_FROM_BROWSER];
+  }
+  return [];
+}
+
+/** True when this install can present a session to sites that demand one. */
+export function hasCookies(): boolean {
+  return Boolean(env.YTDLP_COOKIES_FILE || env.YTDLP_COOKIES_FROM_BROWSER);
+}
+
 /** yt-dlp's `--dump-single-json` output, narrowed to the fields we consume. */
 interface YtDlpFormat {
   format_id?: string;
@@ -67,6 +91,12 @@ export interface YtDlpDownloadOptions {
   /** yt-dlp format selector; defaults to best muxed video+audio. */
   formatId?: string;
   audioOnly: boolean;
+  /**
+   * Whether `formatId` names a *video* rendition that may need an audio track
+   * merged in. False for audio format ids — pairing one with `+bestaudio` would
+   * ask yt-dlp to mux audio onto audio and fail.
+   */
+  mergeAudio?: boolean;
   /** Absolute output path template, without extension. */
   outputTemplate: string;
   proxy: ProxyConfig | null;
@@ -226,7 +256,65 @@ function toCandidates(info: YtDlpInfo, pageUrl: string): MediaCandidate[] {
     return (b.height ?? b.sizeBytes ?? 0) - (a.height ?? a.sizeBytes ?? 0);
   });
 
-  return candidates;
+  // One entry per distinct rendition. Sites commonly list the same resolution
+  // several times (different codecs, different CDN hosts); the sort above has
+  // already put the biggest first, so the first of each key is the one to keep.
+  const seen = new Set<string>();
+  const distinct = candidates.filter((c) => {
+    const key = `${c.kind}|${c.label}|${c.container ?? ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return [...autoCandidates(info, pageUrl, distinct), ...distinct];
+}
+
+/**
+ * The two options every extractor-backed page should offer regardless of how
+ * its format list looks: "just get me the best file" and "just get me the
+ * audio". Both carry no format id, so yt-dlp resolves them at download time —
+ * which is also the reliable path on sites whose individual formats are
+ * unlabelled or expire, Instagram being the usual example.
+ */
+function autoCandidates(
+  info: YtDlpInfo,
+  pageUrl: string,
+  found: MediaCandidate[]
+): MediaCandidate[] {
+  if (found.length === 0) return [];
+
+  const url = info.webpage_url ?? pageUrl;
+  const base = {
+    source: 'ytdlp' as const,
+    url,
+    pageUrl,
+    durationSeconds: info.duration,
+    posterUrl: info.thumbnail,
+    approximateSize: false,
+    // Both selectors can pick separate video/audio streams that need merging.
+    needsMuxing: true,
+  };
+
+  const out: MediaCandidate[] = [];
+  if (found.some((c) => c.kind === 'video')) {
+    out.push({
+      ...base,
+      id: 'ytdlp:best',
+      kind: 'video',
+      label: 'Best available (auto)',
+      quality: 'auto',
+    });
+  }
+  out.push({
+    ...base,
+    id: 'ytdlp:bestaudio',
+    kind: 'audio',
+    label: 'Audio only (MP3)',
+    quality: 'auto',
+    container: 'mp3',
+  });
+  return out;
 }
 
 /**
@@ -252,6 +340,8 @@ export async function probe(url: string, proxy: ProxyConfig | null): Promise<YtD
     '--no-call-home',
     '--socket-timeout', '20',
     '--retries', '2',
+    '--user-agent', BROWSER_UA,
+    ...authArgs(),
   ];
   if (proxy) args.push('--proxy', proxy.url);
   args.push('--', url);
@@ -347,9 +437,11 @@ export async function download(opts: YtDlpDownloadOptions): Promise<YtDlpDownloa
   const format = opts.audioOnly
     ? 'bestaudio/best'
     : opts.formatId
-      // Pair a video-only rendition with the best audio; yt-dlp falls back to
-      // the bare format if muxing is not possible.
-      ? `${opts.formatId}+bestaudio/${opts.formatId}`
+      ? opts.mergeAudio
+        // Pair a video-only rendition with the best audio; yt-dlp falls back to
+        // the bare format if muxing is not possible.
+        ? `${opts.formatId}+bestaudio/${opts.formatId}`
+        : opts.formatId
       : 'bestvideo*+bestaudio/best';
 
   const args = [
@@ -362,6 +454,8 @@ export async function download(opts: YtDlpDownloadOptions): Promise<YtDlpDownloa
     '--retries', '3',
     // Refuse oversized media before writing anything to disk.
     '--max-filesize', String(opts.maxBytes),
+    '--user-agent', BROWSER_UA,
+    ...authArgs(),
     '-o', `${opts.outputTemplate}.%(ext)s`,
   ];
   if (opts.audioOnly) args.push('-x', '--audio-format', 'mp3');

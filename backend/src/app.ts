@@ -69,18 +69,20 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 async function bootstrap(): Promise<void> {
+  // Bind the port first so the API (and the Vite dev proxy) stays up even when
+  // Mongo is unreachable — connectDB retries in the background.
+  const port = parseInt(env.PORT, 10);
+  httpServer.listen(port, () => {
+    logger.info(`🚀 Server running on http://localhost:${port}`);
+    logger.info(`🌍 Environment: ${env.NODE_ENV}`);
+  });
+
   await connectDB();
 
   // Start the BullMQ workers that process jobs in-process. Separate queues so
   // a long media download never blocks a crawl.
   const worker = startCrawlWorker();
   const mediaWorker = startMediaWorker();
-
-  const port = parseInt(env.PORT, 10);
-  httpServer.listen(port, () => {
-    logger.info(`🚀 Server running on http://localhost:${port}`);
-    logger.info(`🌍 Environment: ${env.NODE_ENV}`);
-  });
 
   // ─── Graceful shutdown ───────────────────────────────────────────────────
   const shutdown = async (signal: string): Promise<void> => {

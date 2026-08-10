@@ -86,7 +86,8 @@ userSchema.methods.comparePassword = async function (
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-userSchema.index({ email: 1 });
+// `email` already gets a unique index from its field definition — declaring it
+// again here would make Mongoose warn about a duplicate index.
 userSchema.index({ role: 1, isActive: 1 });
 
 export const User: Model<IUser> = mongoose.model<IUser>('User', userSchema);

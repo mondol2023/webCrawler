@@ -63,6 +63,7 @@ export async function getCapabilities(_req: Request, res: Response): Promise<voi
     data: {
       ytdlp: yt,
       proxyConfigured: Boolean(env.MEDIA_PROXY_URL),
+      cookiesConfigured: ytdlp.hasCookies(),
       maxDownloadBytes: MAX_DOWNLOAD_BYTES,
       maxActiveDownloads: MAX_ACTIVE_DOWNLOADS,
     },

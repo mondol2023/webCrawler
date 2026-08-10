@@ -60,9 +60,16 @@ const RULES: Rule[] = [
       /members[- ]only/i,
       /cookies are required/i,
       /confirm you'?re not a bot/i,
+      // Instagram/Threads phrase it as one combined sentence — it must be read
+      // as a login wall, not as the rate limit the same string mentions.
+      /rate[- ]?limit reached or login required/i,
+      /requested content is not available/i,
+      /you need to log ?in/i,
+      /use --cookies/i,
+      /restricted video: you must be/i,
     ],
     message:
-      'The site requires a signed-in session to reach this media. This tool does not authenticate on your behalf or reuse someone else’s session.',
+      'The site requires a signed-in session to reach this media. This tool does not authenticate on your behalf or reuse someone else’s session. If you have an account that can see this content, the server operator can point YTDLP_COOKIES_FILE at an exported cookies.txt so requests carry your own session.',
     proxyMayHelp: false,
   },
   {
@@ -172,7 +179,7 @@ export function robotsRestriction(): Restriction {
   return {
     kind: 'robots',
     message:
-      'This site’s robots.txt asks automated clients not to fetch this URL. Probing was skipped to respect that.',
+      'This site’s robots.txt asks automated clients not to fetch this URL, so the scan was skipped to respect that. robots.txt is a convention for crawlers rather than an access control — if you have the right to this content you can scan anyway.',
     proxyMayHelp: false,
   };
 }

@@ -24,6 +24,17 @@ const envSchema = z.object({
   MEDIA_PROXY_URL: z.string().optional(),
   /** Path to the yt-dlp binary. Falls back to `yt-dlp` on PATH. */
   YTDLP_PATH: z.string().optional(),
+  /**
+   * Netscape-format cookies.txt passed to yt-dlp (`--cookies`).
+   *
+   * Sites like Instagram refuse anonymous clients outright, so without a session
+   * even a public reel comes back as "login required". This lets the operator
+   * lend the server their *own* signed-in session; it does not reach anything
+   * that account cannot already see.
+   */
+  YTDLP_COOKIES_FILE: z.string().optional(),
+  /** Alternative to the above — a local browser profile, e.g. `chrome` or `firefox:default`. */
+  YTDLP_COOKIES_FROM_BROWSER: z.string().optional(),
   /** Where downloaded files are written. */
   MEDIA_DOWNLOAD_DIR: z.string().default('./downloads'),
   /** Per-download size cap in bytes (default 2 GB). */

@@ -127,10 +127,15 @@ export class MediaDownloadService {
 
     let lastDbWrite = 0;
 
+    // The synthetic "Audio only (MP3)" candidate carries no format id — the
+    // extractor picks the best audio track itself.
+    const audioOnly = record.audioOnly || (record.kind === 'audio' && !record.formatId);
+
     const result = await ytdlp.download({
       url: record.sourceUrl,
       formatId: record.formatId,
-      audioOnly: record.audioOnly,
+      audioOnly,
+      mergeAudio: record.kind === 'video',
       outputTemplate: path.join(dir, stem),
       proxy,
       maxBytes: MAX_DOWNLOAD_BYTES,

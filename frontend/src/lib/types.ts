@@ -203,6 +203,8 @@ export interface MediaDownload {
 export interface MediaCapabilities {
   ytdlp: { available: boolean; version?: string };
   proxyConfigured: boolean;
+  /** True when the server has a cookies file for sites that demand a session. */
+  cookiesConfigured: boolean;
   maxDownloadBytes: number;
   maxActiveDownloads: number;
 }

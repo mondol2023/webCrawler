@@ -1,4 +1,4 @@
-import { Globe2, Lock, CreditCard, ShieldAlert, Clock, Ban, FileWarning } from 'lucide-react';
+import { Globe2, Lock, CreditCard, ShieldAlert, Clock, Ban, FileWarning, ScanSearch } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import type { Restriction, RestrictionKind } from '@/lib/types';
 
@@ -29,24 +29,32 @@ const TITLES: Record<RestrictionKind, string> = {
 /**
  * Explains why a page or asset could not be fetched.
  *
- * The only restriction we offer to work around is `geo`, because that one is
- * purely a function of *where* the request comes from — routing through a proxy
- * the user controls is a legitimate answer. Sign-in walls, paywalls and DRM are
- * access-control decisions by the publisher, so they are stated, not bypassed.
+ * Two of these come with an action:
+ *   - `geo`, because that block is purely a function of *where* the request
+ *     comes from — routing through a proxy the user controls answers it.
+ *   - `robots`, because robots.txt is a crawling convention rather than an
+ *     access control, and the scanner already exposes a switch for it. The
+ *     retry re-runs the same scan with that switch off.
+ *
+ * Sign-in walls, paywalls and DRM get no action: those are access-control
+ * decisions by the publisher, so they are stated, not bypassed.
  */
 export function RestrictionNotice({
   restriction,
   onUseProxy,
+  onIgnoreRobots,
   proxyActive,
 }: {
   restriction: Restriction;
   onUseProxy?: () => void;
+  onIgnoreRobots?: () => void;
   proxyActive?: boolean;
 }) {
   if (restriction.kind === 'none') return null;
 
   const Icon = ICONS[restriction.kind] ?? FileWarning;
   const canRetryViaProxy = restriction.proxyMayHelp && !proxyActive && onUseProxy;
+  const canRetryIgnoringRobots = restriction.kind === 'robots' && onIgnoreRobots;
 
   return (
     <div className="animate-pop-in rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
@@ -67,6 +75,19 @@ export function RestrictionNotice({
               <p className="mt-2 text-xs text-amber-700 dark:text-amber-400/80">
                 This block depends on the country the request comes from. Point the scanner at a
                 proxy or VPN endpoint you control and try again.
+              </p>
+            </div>
+          )}
+
+          {canRetryIgnoringRobots && (
+            <div className="mt-3">
+              <Button size="sm" variant="outline" onClick={onIgnoreRobots}>
+                <ScanSearch className="h-4 w-4" />
+                Scan anyway
+              </Button>
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-400/80">
+                Only do this for content you are entitled to download. The site’s terms still
+                apply — robots.txt is guidance for crawlers, not permission.
               </p>
             </div>
           )}
