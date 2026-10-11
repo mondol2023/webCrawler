@@ -35,8 +35,36 @@ export const CACHE_LIMIT_BYTES = 5 * 1024 * 1024;
 export const THIN_CONTENT_CHARS = 500;
 
 const VIDEO_FILE_RE = /\.(mp4|webm|ogg|ogv|mov|m4v)(\?|#|$)/i;
-const EMBED_HOST_RE =
-  /(?:youtube\.com|youtu\.be|player\.vimeo\.com|vimeo\.com|dailymotion\.com|wistia\.(?:com|net)|facebook\.com\/plugins\/video)/i;
+const EMBED_HOSTS = [
+  'youtube.com',
+  'youtube-nocookie.com',
+  'youtu.be',
+  'player.vimeo.com',
+  'vimeo.com',
+  'dailymotion.com',
+  'wistia.com',
+  'wistia.net',
+];
+
+const hostMatches = (hostname: string, domain: string): boolean =>
+  hostname === domain || hostname.endsWith(`.${domain}`);
+
+/**
+ * True when `url` is a known third-party video player. Matches the parsed
+ * hostname (exact or subdomain), so `https://evil.com/?youtube.com` is rejected.
+ */
+export function isEmbedHost(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  const host = parsed.hostname.toLowerCase();
+  if (EMBED_HOSTS.some((d) => hostMatches(host, d))) return true;
+  return hostMatches(host, 'facebook.com') && parsed.pathname.startsWith('/plugins/video');
+}
 
 const byteLen = (s: string): number => Buffer.byteLength(s, 'utf8');
 
@@ -197,7 +225,7 @@ export class ContentAnalyzer {
       const src = $(el).attr('src');
       if (!src) return;
       const resolved = resolveUrl(url, src);
-      if (resolved && !seenImages.has(resolved) && images.length < MAX_IMAGES) {
+      if (resolved && isValidUrl(resolved) && !seenImages.has(resolved) && images.length < MAX_IMAGES) {
         seenImages.add(resolved);
         images.push(resolved);
       }
@@ -244,7 +272,8 @@ export class ContentAnalyzer {
 
     $('iframe[src]').each((_i, el) => {
       const src = $(el).attr('src');
-      if (src && EMBED_HOST_RE.test(src)) add(src, 'embed');
+      const resolved = src ? resolveUrl(url, src) : null;
+      if (resolved && isEmbedHost(resolved)) add(resolved, 'embed');
     });
 
     // Direct links to video files elsewhere on the page.

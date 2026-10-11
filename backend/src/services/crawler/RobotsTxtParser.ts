@@ -10,6 +10,8 @@ type Robot = ReturnType<typeof robotsParser>;
 const USER_AGENT = 'WIPBot';
 const ROBOTS_TIMEOUT = 8000;
 const DEFAULT_CRAWL_DELAY_MS = 500;
+/** Upper bound on a robots.txt crawl-delay, so a hostile value can't stall a job. */
+export const MAX_CRAWL_DELAY_MS = 10_000;
 
 /**
  * Fetches and caches robots.txt per host so the crawler can honour crawl
@@ -31,7 +33,7 @@ export class RobotsTxtService {
     if (!robot) return DEFAULT_CRAWL_DELAY_MS;
     const delaySeconds = robot.getCrawlDelay(USER_AGENT);
     return typeof delaySeconds === 'number'
-      ? delaySeconds * 1000
+      ? Math.min(delaySeconds * 1000, MAX_CRAWL_DELAY_MS)
       : DEFAULT_CRAWL_DELAY_MS;
   }
 

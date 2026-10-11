@@ -23,6 +23,7 @@ export function VideoPlayer({ video }: { video: VideoItem }) {
             src={video.url}
             title="Embedded video"
             loading="lazy"
+            sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
             referrerPolicy="strict-origin-when-cross-origin"
