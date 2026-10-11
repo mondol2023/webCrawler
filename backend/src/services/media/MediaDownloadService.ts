@@ -20,7 +20,7 @@ import { logger } from '../../utils/logger';
 import { emitToUser } from '../socketService';
 import * as ytdlp from './YtDlpAdapter';
 import { proxyAgents, resolveProxy } from './proxyConfig';
-import { assertPublicUrl, BlockedHostError } from './netGuard';
+import { assertPublicUrl, BlockedHostError, publicAgents } from './netGuard';
 import { detectFromStatus } from './RestrictionDetector';
 import { MAX_DOWNLOAD_BYTES, findByStem, fileSize, removeFile, safeFilename, userDir } from './storage';
 import type { ProxyConfig, Restriction } from './types';
@@ -72,6 +72,18 @@ export class MediaDownloadService {
     } catch (err) {
       await this.fail(record, (err as Error).message);
       return;
+    }
+
+    // Checked before the transport choice so the yt-dlp path is covered too.
+    // The direct stream additionally re-checks every redirect hop via its agents.
+    try {
+      await assertPublicUrl(record.sourceUrl);
+    } catch (err) {
+      if (err instanceof BlockedHostError) {
+        await this.fail(record, err.message);
+        return;
+      }
+      throw err;
     }
 
     record.status = 'downloading';
@@ -173,13 +185,6 @@ export class MediaDownloadService {
     record: IMediaDownload,
     proxy: ProxyConfig | null
   ): Promise<{ filePath?: string; restriction?: Restriction; errorMessage?: string }> {
-    try {
-      await assertPublicUrl(record.sourceUrl);
-    } catch (err) {
-      if (err instanceof BlockedHostError) return { errorMessage: err.message };
-      throw err;
-    }
-
     const response = await axios.get<Readable>(record.sourceUrl, {
       responseType: 'stream',
       timeout: 30_000,
@@ -192,7 +197,9 @@ export class MediaDownloadService {
         Referer: record.pageUrl,
         Accept: '*/*',
       },
-      ...proxyAgents(proxy),
+      // Unproxied requests resolve DNS through guardedLookup, so a redirect to
+      // a private address fails at that hop. Proxied ones resolve at the proxy.
+      ...(proxy ? proxyAgents(proxy) : publicAgents()),
     });
 
     if (response.status >= 400) {

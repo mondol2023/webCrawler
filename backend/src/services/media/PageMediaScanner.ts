@@ -15,6 +15,7 @@
  */
 import type { BrowserContext, Page, Response } from 'playwright';
 import { getBrowser } from '../crawler/PlaywrightCrawler';
+import { installRequestGuard } from '../crawler/playwrightGuard';
 import { logger } from '../../utils/logger';
 import { playwrightProxy } from './proxyConfig';
 import { detectFromStatus, detectFromText } from './RestrictionDetector';
@@ -102,6 +103,9 @@ export class PageMediaScanner {
       });
 
       page = await context.newPage();
+      // With a proxy, requests resolve at the proxy (whose host was already
+      // checked), so a local DNS verdict would be meaningless.
+      if (!proxy) await installRequestGuard(page);
       const networkHits = new Map<string, Hit>();
 
       page.on('response', (response: Response) => {

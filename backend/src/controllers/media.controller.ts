@@ -15,6 +15,7 @@ import { MediaProbeService } from '../services/media/MediaProbeService';
 import { suggestedFileName } from '../services/media/MediaDownloadService';
 import { resolveProxy, ProxyConfigError } from '../services/media/proxyConfig';
 import { assertInsideRoot, fileSize, removeFile, MAX_DOWNLOAD_BYTES } from '../services/media/storage';
+import { assertPublicProxyUrl, assertPublicUrl, BlockedHostError } from '../services/media/netGuard';
 import { addMediaJob, removeMediaJob } from '../queue/media.queue';
 import * as ytdlp from '../services/media/YtDlpAdapter';
 import { env } from '../config/env';
@@ -79,6 +80,8 @@ export async function probeUrl(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    if (await rejectBlocked(res, () => checkUserProxy(body.data.proxyUrl))) return;
+
     let proxy;
     try {
       proxy = resolveProxy(body.data.proxyUrl);
@@ -111,6 +114,15 @@ export async function startDownloads(req: Request, res: Response): Promise<void>
       res.status(400).json({ success: false, errors: body.error.flatten().fieldErrors });
       return;
     }
+
+    const blocked = await rejectBlocked(res, async () => {
+      await checkUserProxy(body.data.proxyUrl);
+      for (const item of body.data.items) {
+        await assertPublicUrl(item.url);
+        await assertPublicUrl(item.pageUrl);
+      }
+    });
+    if (blocked) return;
 
     let proxy;
     try {
@@ -286,6 +298,28 @@ export async function deleteDownload(req: Request, res: Response): Promise<void>
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
+/**
+ * Only a user-supplied proxy is checked: the operator's MEDIA_PROXY_URL is
+ * trusted and may legitimately live on a private network.
+ */
+async function checkUserProxy(proxyUrl: string | undefined): Promise<void> {
+  if (proxyUrl) await assertPublicProxyUrl(proxyUrl);
+}
+
+/** Runs `check`; on a BlockedHostError answers 400 and returns true. */
+async function rejectBlocked(res: Response, check: () => Promise<void>): Promise<boolean> {
+  try {
+    await check();
+    return false;
+  } catch (err) {
+    if (err instanceof BlockedHostError) {
+      res.status(400).json({ success: false, message: err.message });
+      return true;
+    }
+    throw err;
+  }
+}
+
 /** Loads a download and 404s unless it belongs to the caller. */
 async function findOwned(req: Request, res: Response) {
   const { id } = req.params;
