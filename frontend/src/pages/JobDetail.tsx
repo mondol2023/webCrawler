@@ -40,10 +40,14 @@ export default function JobDetail() {
   const live = useAppSelector((s) => (jobId ? s.crawl.live[jobId] : undefined));
 
   // When the socket reports the job settled, pull fresh job + results.
+  // Depend on the stable refetch functions, not the query objects (which change
+  // every render), so the socket subscription isn't torn down and re-joined.
+  const { refetch: refetchJob } = jobQuery;
+  const { refetch: refetchResults } = resultsQuery;
   const onSettled = useCallback(() => {
-    jobQuery.refetch();
-    resultsQuery.refetch();
-  }, [jobQuery, resultsQuery]);
+    refetchJob();
+    refetchResults();
+  }, [refetchJob, refetchResults]);
   useJobSocket(jobId, onSettled);
 
   if (jobQuery.isLoading) return <PageLoader label="Loading job…" />;

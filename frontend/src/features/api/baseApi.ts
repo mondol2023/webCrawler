@@ -6,6 +6,7 @@ import {
   type FetchBaseQueryError,
 } from '@reduxjs/toolkit/query/react';
 import { Mutex } from './mutex';
+import { clearUser } from '../auth/authSlice';
 
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: '/api',
@@ -29,7 +30,11 @@ const baseQueryWithReauth: BaseQueryFn<
 
   let result = await rawBaseQuery(args, api, extraOptions);
 
-  if (result.error?.status === 401) {
+  // A 401 from login/register/refresh is a real answer, not an expired token.
+  const url = typeof args === 'string' ? args : args.url;
+  const isAuthCall = url.replace(/^\//, '').startsWith('auth/');
+
+  if (result.error?.status === 401 && !isAuthCall) {
     if (!refreshMutex.isLocked()) {
       const release = await refreshMutex.acquire();
       try {
@@ -41,6 +46,9 @@ const baseQueryWithReauth: BaseQueryFn<
         if (refresh.data) {
           // Retry the original request with the refreshed cookie.
           result = await rawBaseQuery(args, api, extraOptions);
+        } else {
+          // Refresh token is gone or expired — drop the session so guards redirect.
+          api.dispatch(clearUser());
         }
       } finally {
         release();

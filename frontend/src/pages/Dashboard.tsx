@@ -4,7 +4,7 @@ import { PlusCircle, Inbox, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { JobCard } from '@/components/crawl/JobCard';
 import { PageLoader, EmptyState, ErrorState } from '@/components/ui/Misc';
-import { useListJobsQuery } from '@/features/crawl/crawlApi';
+import { crawlApi, useListJobsQuery } from '@/features/crawl/crawlApi';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { cn } from '@/lib/utils';
 import type { CrawlJobStatus } from '@/lib/types';
@@ -23,19 +23,23 @@ export default function Dashboard() {
   const [status, setStatus] = useState<CrawlJobStatus | undefined>(undefined);
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, isError, error } = useListJobsQuery(
-    { page, limit: 9, status },
-    // Poll while there might be active jobs so progress stays fresh.
-    { pollingInterval: 6000 }
-  );
+  const args = { page, limit: 9, status };
 
-  const jobs = data?.data.jobs ?? [];
-  const pagination = data?.data.pagination;
-
+  // Decide polling from the cached result for these args (the previous load);
+  // the first load always fetches, so starting with no polling is fine.
+  const { data: cached } = crawlApi.endpoints.listJobs.useQueryState(args);
   const hasActive = useMemo(
-    () => jobs.some((j) => ACTIVE_STATUSES.includes(j.status)),
-    [jobs]
+    () => (cached?.data.jobs ?? []).some((j) => ACTIVE_STATUSES.includes(j.status)),
+    [cached]
   );
+
+  // Poll only while there are active jobs so progress stays fresh.
+  const { data, isLoading, isError, error } = useListJobsQuery(args, {
+    pollingInterval: hasActive ? 6000 : 0,
+  });
+
+  const jobs = useMemo(() => data?.data.jobs ?? [], [data]);
+  const pagination = data?.data.pagination;
 
   return (
     <div className="space-y-6">
