@@ -39,3 +39,9 @@ export async function addCrawlJob(payload: CrawlJobPayload): Promise<string> {
   logger.info(`Queued crawl job: ${job.id}`);
   return job.id!;
 }
+
+/** Drops a crawl from the queue so a cancelled job is never picked up. */
+export async function removeCrawlJob(jobId: string): Promise<void> {
+  const job = await crawlQueue.getJob(jobId);
+  if (job) await job.remove().catch(() => undefined);
+}

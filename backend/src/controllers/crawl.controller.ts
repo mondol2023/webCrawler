@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import { CrawlJob } from '../models/CrawlJob.model';
 import { CrawlResult } from '../models/CrawlResult.model';
 import { User } from '../models/User.model';
-import { addCrawlJob } from '../queue/crawl.queue';
+import { addCrawlJob, removeCrawlJob } from '../queue/crawl.queue';
 import { logger } from '../utils/logger';
 import { isValidUrl } from '../utils/urlUtils';
 import { assertPublicUrl, BlockedHostError } from '../services/media/netGuard';
@@ -316,14 +316,25 @@ export async function getPublicResult(req: Request, res: Response): Promise<void
 export async function cancelCrawlJob(req: Request, res: Response): Promise<void> {
   try {
     const { jobId } = req.params;
-
-    const job = await CrawlJob.findOne({ _id: jobId, userId: req.user!.userId });
-    if (!job) {
-      res.status(404).json({ success: false, message: 'Job not found' });
+    if (!mongoose.isValidObjectId(jobId)) {
+      res.status(400).json({ success: false, message: 'Invalid job id' });
       return;
     }
 
-    if (!['pending', 'queued'].includes(job.status)) {
+    // Atomic so a worker claiming the job at the same moment can't race us:
+    // exactly one of the two status transitions wins.
+    const cancelled = await CrawlJob.findOneAndUpdate(
+      { _id: jobId, userId: req.user!.userId, status: { $in: ['pending', 'queued'] } },
+      { status: 'cancelled', completedAt: new Date() },
+      { new: true }
+    );
+
+    if (!cancelled) {
+      const job = await CrawlJob.findOne({ _id: jobId, userId: req.user!.userId });
+      if (!job) {
+        res.status(404).json({ success: false, message: 'Job not found' });
+        return;
+      }
       res.status(400).json({
         success: false,
         message: `Cannot cancel a job with status '${job.status}'`,
@@ -331,7 +342,8 @@ export async function cancelCrawlJob(req: Request, res: Response): Promise<void>
       return;
     }
 
-    await CrawlJob.findByIdAndUpdate(jobId, { status: 'cancelled' });
+    // Drop it from the queue; the worker's claim would skip it anyway.
+    await removeCrawlJob(jobId);
 
     res.json({ success: true, message: 'Job cancelled' });
   } catch (error) {

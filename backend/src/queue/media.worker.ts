@@ -12,6 +12,7 @@ import { MediaDownloadService } from '../services/media/MediaDownloadService';
 import { MediaDownload } from '../models/MediaDownload.model';
 import { logger } from '../utils/logger';
 import { emitToUser } from '../services/socketService';
+import { isFinalAttempt } from './attempts';
 
 // Downloads are network-bound, so a few in parallel is fine; keep it modest so
 // yt-dlp processes don't pile up.
@@ -36,21 +37,30 @@ export function startMediaWorker(): Worker<MediaJobPayload> {
   );
 
   worker.on('failed', async (job, err) => {
-    const downloadId = job?.data?.downloadId;
-    logger.error(`Media download failed [${downloadId}]:`, err);
-    if (!downloadId) return;
+    // BullMQ will retry; the download is still in flight, not failed.
+    if (!isFinalAttempt(job)) {
+      logger.warn(`Media download attempt ${job?.attemptsMade} failed, will retry [${job?.data?.downloadId}]: ${err.message}`);
+      return;
+    }
+    try {
+      const downloadId = job?.data?.downloadId;
+      logger.error(`Media download failed [${downloadId}]:`, err);
+      if (!downloadId) return;
 
-    // The service marks its own terminal states; this only catches throws that
-    // escaped it (e.g. the DB went away mid-run).
-    const record = await MediaDownload.findById(downloadId);
-    if (!record || ['completed', 'blocked', 'cancelled'].includes(record.status)) return;
+      // The service marks its own terminal states; this only catches throws that
+      // escaped it (e.g. the DB went away mid-run).
+      const record = await MediaDownload.findById(downloadId);
+      if (!record || ['completed', 'blocked', 'cancelled'].includes(record.status)) return;
 
-    record.status = 'failed';
-    record.errorMessage = err.message.slice(0, 500);
-    record.completedAt = new Date();
-    await record.save();
+      record.status = 'failed';
+      record.errorMessage = err.message.slice(0, 500);
+      record.completedAt = new Date();
+      await record.save();
 
-    emitToUser(record.userId.toString(), 'media:failed', { download: record.toJSON() });
+      emitToUser(record.userId.toString(), 'media:failed', { download: record.toJSON() });
+    } catch (e) {
+      logger.error('Media worker failed-handler error:', e);
+    }
   });
 
   worker.on('error', (err) => {
