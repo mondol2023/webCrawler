@@ -1,4 +1,8 @@
 import type { Server as SocketServer } from 'socket.io';
+import mongoose from 'mongoose';
+import { parse as parseCookie } from 'cookie';
+import { CrawlJob } from '../models/CrawlJob.model';
+import { verifyAccessToken, type JwtPayload } from '../utils/jwt';
 import { logger } from '../utils/logger';
 
 /**
@@ -9,30 +13,56 @@ import { logger } from '../utils/logger';
  */
 let ioRef: SocketServer | null = null;
 
+/**
+ * Resolves the caller from the handshake: the httpOnly `accessToken` cookie the
+ * browser sends with the upgrade, else an explicit `auth.token`. Returns null
+ * when neither carries a valid access token.
+ */
+export function authenticateHandshake(
+  cookieHeader: string | undefined,
+  authToken: unknown
+): JwtPayload | null {
+  const fromCookie = cookieHeader ? parseCookie(cookieHeader).accessToken : undefined;
+  const token = fromCookie || (typeof authToken === 'string' ? authToken : undefined);
+  if (!token) return null;
+  try {
+    return verifyAccessToken(token);
+  } catch {
+    return null;
+  }
+}
+
 export function initSocket(io: SocketServer): void {
   ioRef = io;
 
+  io.use((socket, next) => {
+    const user = authenticateHandshake(socket.handshake.headers.cookie, socket.handshake.auth?.token);
+    if (!user) return next(new Error('unauthorized'));
+    socket.data.user = user;
+    next();
+  });
+
   io.on('connection', (socket) => {
+    const user = socket.data.user as JwtPayload;
     logger.debug(`Socket connected: ${socket.id}`);
 
-    socket.on('join:job', (jobId: string) => {
-      socket.join(`job:${jobId}`);
-      logger.debug(`Socket ${socket.id} joined job:${jobId}`);
+    // Media progress is per-user; the server joins the room so a client can
+    // never subscribe to someone else's. Runs on every (re)connect.
+    socket.join(`user:${user.userId}`);
+
+    socket.on('join:job', async (jobId: unknown) => {
+      try {
+        if (typeof jobId !== 'string' || !mongoose.isValidObjectId(jobId)) return;
+        if (!(await CrawlJob.exists({ _id: jobId, userId: user.userId }))) return;
+        socket.join(`job:${jobId}`);
+        logger.debug(`Socket ${socket.id} joined job:${jobId}`);
+      } catch (err) {
+        logger.error(`join:job failed for socket ${socket.id}:`, err);
+      }
     });
 
-    socket.on('leave:job', (jobId: string) => {
-      socket.leave(`job:${jobId}`);
-    });
-
-    // Media downloads are per-user rather than per-job, so clients subscribe
-    // to their own room to receive progress for every download they started.
-    socket.on('join:user', (userId: string) => {
-      socket.join(`user:${userId}`);
-      logger.debug(`Socket ${socket.id} joined user:${userId}`);
-    });
-
-    socket.on('leave:user', (userId: string) => {
-      socket.leave(`user:${userId}`);
+    socket.on('leave:job', (jobId: unknown) => {
+      if (typeof jobId === 'string') socket.leave(`job:${jobId}`);
     });
 
     socket.on('disconnect', () => {

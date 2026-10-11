@@ -25,10 +25,8 @@ export function useMediaSocket(onSettled?: () => void): Record<string, MediaDown
     const userId = user?._id;
     if (!userId) return;
 
+    // The server joins this socket to the user's room on every (re)connect.
     const socket = getSocket();
-    const join = () => socket.emit('join:user', userId);
-    join();
-    socket.on('connect', join);
 
     const apply = (payload: { download: MediaDownload }) => {
       setLive((prev) => ({ ...prev, [payload.download._id]: payload.download }));
@@ -46,8 +44,6 @@ export function useMediaSocket(onSettled?: () => void): Record<string, MediaDown
     socket.on('media:blocked', applyTerminal);
 
     return () => {
-      socket.emit('leave:user', userId);
-      socket.off('connect', join);
       socket.off('media:started', apply);
       socket.off('media:progress', apply);
       socket.off('media:completed', applyTerminal);

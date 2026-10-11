@@ -14,6 +14,13 @@ export function getSocket(): Socket {
       autoConnect: true,
       transports: ['websocket', 'polling'],
     });
+    // A handshake the server rejects (e.g. an expired access cookie) is not
+    // retried by the client on its own. Try again later, by which time the
+    // HTTP layer has usually refreshed the cookie.
+    const s = socket;
+    s.on('connect_error', () => {
+      if (!s.active) setTimeout(() => s.connect(), 5_000);
+    });
   }
   return socket;
 }
