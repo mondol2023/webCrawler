@@ -11,6 +11,7 @@ import { CrawlPageResult } from './CheerioCrawler';
 import { installRequestGuard } from './playwrightGuard';
 
 let browserInstance: Browser | null = null;
+let launching: Promise<Browser> | null = null;
 
 /**
  * Shared, lazily-launched Chromium instance. Exported so other subsystems (the
@@ -18,20 +19,31 @@ let browserInstance: Browser | null = null;
  * `closeBrowser()` on shutdown then covers all of them.
  */
 export async function getBrowser(): Promise<Browser> {
-  if (!browserInstance || !browserInstance.isConnected()) {
-    browserInstance = await chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-      ],
-    });
-    logger.info('Playwright browser launched');
+  if (browserInstance && browserInstance.isConnected()) return browserInstance;
+  // Single-flight: concurrent callers share one launch instead of each
+  // starting (and leaking) its own Chromium process.
+  if (!launching) {
+    launching = (async () => {
+      try {
+        const browser = await chromium.launch({
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--no-first-run',
+          ],
+        });
+        browserInstance = browser;
+        logger.info('Playwright browser launched');
+        return browser;
+      } finally {
+        launching = null;
+      }
+    })();
   }
-  return browserInstance;
+  return launching;
 }
 
 export async function closeBrowser(): Promise<void> {

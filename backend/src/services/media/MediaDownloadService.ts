@@ -22,11 +22,20 @@ import * as ytdlp from './YtDlpAdapter';
 import { proxyAgents, resolveProxy } from './proxyConfig';
 import { assertPublicUrl, BlockedHostError, publicAgents } from './netGuard';
 import { detectFromStatus } from './RestrictionDetector';
+import { register, unregister } from './activeDownloads';
 import { MAX_DOWNLOAD_BYTES, findByStem, fileSize, removeFile, safeFilename, userDir } from './storage';
 import type { ProxyConfig, Restriction } from './types';
 
 /** How often progress is written to Mongo (socket updates are more frequent). */
 const DB_PROGRESS_INTERVAL_MS = 1_500;
+
+type Outcome = {
+  filePath?: string;
+  restriction?: Restriction;
+  errorMessage?: string;
+  /** The run was cancelled (the record is being deleted); write nothing. */
+  aborted?: boolean;
+};
 
 const EXT_BY_MIME: Record<string, string> = {
   'video/mp4': 'mp4',
@@ -86,19 +95,25 @@ export class MediaDownloadService {
       throw err;
     }
 
-    record.status = 'downloading';
-    record.startedAt = new Date();
-    record.usedProxy = proxy !== null;
-    record.proxyLabel = proxy?.safeLabel;
-    await record.save();
-    this.emit(record, 'media:started');
-
+    // Registered before the transport starts so deleteDownload can abort it.
+    const signal = register(downloadId);
     try {
+      record.status = 'downloading';
+      record.startedAt = new Date();
+      record.usedProxy = proxy !== null;
+      record.proxyLabel = proxy?.safeLabel;
+      await record.save();
+      this.emit(record, 'media:started');
+
       const useYtDlp = record.source === 'ytdlp' || record.audioOnly || this.isManifest(record.sourceUrl);
       const outcome = useYtDlp
-        ? await this.viaYtDlp(record, proxy)
-        : await this.viaDirectStream(record, proxy);
+        ? await this.viaYtDlp(record, proxy, signal)
+        : await this.viaDirectStream(record, proxy, signal);
 
+      if (outcome.aborted || signal.aborted) {
+        await this.discardPartials(record);
+        return;
+      }
       if (outcome.restriction) {
         await this.block(record, outcome.restriction);
         return;
@@ -120,8 +135,34 @@ export class MediaDownloadService {
       logger.info(`Media download completed: ${record._id} (${record.sizeBytes} bytes)`);
       this.emit(record, 'media:completed');
     } catch (err) {
+      // The record was deleted mid-transfer; the save would only throw again.
+      if (signal.aborted) {
+        await this.discardPartials(record);
+        return;
+      }
       logger.error(`Media download ${downloadId} threw:`, err);
       await this.fail(record, (err as Error).message);
+    } finally {
+      unregister(downloadId);
+    }
+  }
+
+  /** Removes every file this download wrote (partials, unmerged streams). */
+  private async discardPartials(record: IMediaDownload): Promise<void> {
+    logger.info(`Media download cancelled: ${record._id}`);
+    try {
+      const dir = await userDir(record.userId.toString());
+      const stem = record._id.toString();
+      let previous: string | undefined;
+      for (;;) {
+        const file = await findByStem(dir, stem);
+        // Stop if a file could not be removed, rather than spinning on it.
+        if (!file || file === previous) break;
+        await removeFile(file);
+        previous = file;
+      }
+    } catch (err) {
+      logger.warn(`Could not clean up cancelled download ${record._id}: ${(err as Error).message}`);
     }
   }
 
@@ -132,8 +173,9 @@ export class MediaDownloadService {
   // ─── Transport: yt-dlp ────────────────────────────────────────────────────
   private async viaYtDlp(
     record: IMediaDownload,
-    proxy: ProxyConfig | null
-  ): Promise<{ filePath?: string; restriction?: Restriction; errorMessage?: string }> {
+    proxy: ProxyConfig | null,
+    signal: AbortSignal
+  ): Promise<Outcome> {
     const dir = await userDir(record.userId.toString());
     const stem = record._id.toString();
 
@@ -151,6 +193,7 @@ export class MediaDownloadService {
       outputTemplate: path.join(dir, stem),
       proxy,
       maxBytes: MAX_DOWNLOAD_BYTES,
+      signal,
       onProgress: (percent, downloaded, total) => {
         record.progress = Math.min(99, Math.round(percent));
         record.downloadedBytes = downloaded;
@@ -168,6 +211,7 @@ export class MediaDownloadService {
       },
     });
 
+    if (result.aborted) return { aborted: true };
     if (!result.ok) {
       return result.restriction.kind !== 'none'
         ? { restriction: result.restriction }
@@ -183,10 +227,12 @@ export class MediaDownloadService {
   // ─── Transport: direct stream ─────────────────────────────────────────────
   private async viaDirectStream(
     record: IMediaDownload,
-    proxy: ProxyConfig | null
-  ): Promise<{ filePath?: string; restriction?: Restriction; errorMessage?: string }> {
+    proxy: ProxyConfig | null,
+    signal: AbortSignal
+  ): Promise<Outcome> {
     const response = await axios.get<Readable>(record.sourceUrl, {
       responseType: 'stream',
+      signal,
       timeout: 30_000,
       maxRedirects: 5,
       validateStatus: () => true,
@@ -200,6 +246,15 @@ export class MediaDownloadService {
       // Unproxied requests resolve DNS through guardedLookup, so a redirect to
       // a private address fails at that hop. Proxied ones resolve at the proxy.
       ...(proxy ? proxyAgents(proxy) : publicAgents()),
+    });
+
+    // Stop the body too: an abort after the headers arrived must end the pipe.
+    if (signal.aborted) {
+      response.data.destroy();
+      return { aborted: true };
+    }
+    signal.addEventListener('abort', () => response.data.destroy(new Error('ABORTED')), {
+      once: true,
     });
 
     if (response.status >= 400) {
@@ -263,6 +318,7 @@ export class MediaDownloadService {
       await pipeline(response.data, createWriteStream(filePath));
     } catch (err) {
       await removeFile(filePath).catch(() => undefined);
+      if (signal.aborted) return { aborted: true };
       if (overflowed || (err as Error).message === 'SIZE_LIMIT') {
         return {
           errorMessage: `Download exceeded the ${Math.round(

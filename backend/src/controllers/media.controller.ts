@@ -17,6 +17,7 @@ import { resolveProxy, ProxyConfigError } from '../services/media/proxyConfig';
 import { assertInsideRoot, fileSize, removeFile, MAX_DOWNLOAD_BYTES } from '../services/media/storage';
 import { assertPublicProxyUrl, assertPublicUrl, BlockedHostError } from '../services/media/netGuard';
 import { addMediaJob, removeMediaJob } from '../queue/media.queue';
+import { cancel as cancelActiveDownload } from '../services/media/activeDownloads';
 import * as ytdlp from '../services/media/YtDlpAdapter';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
@@ -278,7 +279,9 @@ export async function deleteDownload(req: Request, res: Response): Promise<void>
   const record = await findOwned(req, res);
   if (!record) return;
 
-  // Pull it from the queue first so the worker doesn't pick up a deleted row.
+  // Stop a transfer running in this process (it removes its own partial
+  // files), then pull the job from the queue so no worker picks it up.
+  cancelActiveDownload(record._id.toString());
   await removeMediaJob(record._id.toString());
 
   if (record.filePath) {

@@ -102,6 +102,8 @@ export interface YtDlpDownloadOptions {
   proxy: ProxyConfig | null;
   maxBytes: number;
   onProgress?: (percent: number, downloadedBytes: number, totalBytes: number) => void;
+  /** Aborting kills the yt-dlp process; the result then has `aborted: true`. */
+  signal?: AbortSignal;
 }
 
 export interface YtDlpDownloadResult {
@@ -111,6 +113,8 @@ export interface YtDlpDownloadResult {
   /** Absolute path yt-dlp actually wrote (extension resolved at runtime). */
   filePath?: string;
   sizeBytes?: number;
+  /** True when the run was stopped through `signal`. */
+  aborted?: boolean;
 }
 
 let availabilityCache: { checked: boolean; available: boolean; version?: string } = {
@@ -121,8 +125,8 @@ let availabilityCache: { checked: boolean; available: boolean; version?: string 
 /** Runs a yt-dlp subprocess and collects its output. Never uses a shell. */
 function run(
   args: string[],
-  opts: { timeoutMs: number; onStdoutLine?: (line: string) => void }
-): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
+  opts: { timeoutMs: number; onStdoutLine?: (line: string) => void; signal?: AbortSignal }
+): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean; aborted?: boolean }> {
   return new Promise((resolve) => {
     let child: ChildProcessWithoutNullStreams;
     try {
@@ -143,6 +147,11 @@ function run(
       child.kill('SIGKILL');
     }, opts.timeoutMs);
 
+    const onAbort = () => {
+      child.kill('SIGKILL');
+      settle(-1, true);
+    };
+
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stdout += text;
@@ -158,13 +167,21 @@ function run(
       stderr += chunk.toString();
     });
 
-    const settle = (code: number) => {
+    function settle(code: number, aborted = false) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      opts.signal?.removeEventListener('abort', onAbort);
+      if (aborted) {
+        resolve({ code, stdout, stderr, timedOut, aborted });
+        return;
+      }
       if (opts.onStdoutLine && stdoutBuffer) opts.onStdoutLine(stdoutBuffer);
       resolve({ code, stdout, stderr, timedOut });
-    };
+    }
+
+    if (opts.signal?.aborted) onAbort();
+    else opts.signal?.addEventListener('abort', onAbort, { once: true });
 
     child.on('error', (err) => {
       stderr += `\n${err.message}`;
@@ -425,6 +442,8 @@ const UNIT_BYTES: Record<string, number> = {
 };
 
 export async function download(opts: YtDlpDownloadOptions): Promise<YtDlpDownloadResult> {
+  if (opts.signal?.aborted) return { ok: false, restriction: NO_RESTRICTION, aborted: true };
+
   const { available } = await isAvailable();
   if (!available) {
     return {
@@ -464,8 +483,9 @@ export async function download(opts: YtDlpDownloadOptions): Promise<YtDlpDownloa
 
   let filePath: string | undefined;
 
-  const { code, stderr, timedOut } = await run(args, {
+  const { code, stderr, timedOut, aborted } = await run(args, {
     timeoutMs: 30 * 60_000,
+    signal: opts.signal,
     onStdoutLine: (line) => {
       const dest = DESTINATION_RE.exec(line);
       if (dest) filePath = dest[1].trim();
@@ -478,6 +498,8 @@ export async function download(opts: YtDlpDownloadOptions): Promise<YtDlpDownloa
       }
     },
   });
+
+  if (aborted) return { ok: false, restriction: NO_RESTRICTION, aborted: true };
 
   if (timedOut) {
     return { ok: false, restriction: NO_RESTRICTION, errorMessage: 'Download timed out (30 min).' };
