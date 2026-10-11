@@ -1,5 +1,5 @@
 * {
-    mergin:0;
+    margin: 0;
     padding: 0;
     box-sizing: border-box;
     font-family: 'Poppins', sans-serif;
@@ -20,7 +20,7 @@ body {
     margin: 1rem 0;
 }
 
-.control.input[type="text"] {
+.controls input[type="text"] {
     padding: 0.5rem 1rem;
     border: none;
     border-radius: 4px;
@@ -31,7 +31,7 @@ body {
     max-width: 400px;
 }
 
-.control.button {
+.controls button {
     padding: 0.5rem 1rem;
     border: none;
     border-radius: 4px;
@@ -41,18 +41,18 @@ body {
     cursor: pointer;
 }
 
-.control.button:hover {
+.controls button:hover {
     background-color: #444;
 }
 
 .download-bar {
+    display: none;
     position: fixed;
     bottom: 0;
     left: 0;
     width: 100%;
     background-color: #333;
     padding: 1rem;
-    display: flex;
     justify-content: center;
     align-items: center;
     gap: 1rem;
@@ -123,4 +123,14 @@ button {
     cursor: pointer;
     border: none;
     box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+}
+.grid {
+    padding: 1rem 1rem 5rem;
+}
+
+.card-body a {
+    display: block;
+    margin-top: 0.5rem;
+    color: #6ab0ff;
+    word-break: break-all;
 }

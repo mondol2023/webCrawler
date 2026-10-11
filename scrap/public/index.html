@@ -10,23 +10,25 @@
     <h1>video scrapper</h1>
 
     <div>
-        <input type = "text" id = "q" placeholder="search video" value= " what">
-        <select id = "count">
-            <option value ="5">5</option>
-            <option value="10">10</option>
-            <option value="15">15</option>
-        </select>
-        <button>search</button>
-
-        <p id = "status"></p>
-
-        <div class="download-bar" id="download-bar">
-            <button>Download</button>
+        <div class="controls">
+            <input type="text" id="q" placeholder="search video">
+            <select id="count">
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="15">15</option>
+            </select>
+            <button id="searchBtn">Search</button>
         </div>
+
+        <p id="status"></p>
 
         <div id="results" class="grid"></div>
 
-        <script.src="app.js"></script>
+        <div class="download-bar" id="download-bar">
+            <button id="downloadAllBtn">Download all</button>
+        </div>
     </div>
+
+    <script src="app.js"></script>
 </body>
 </html>
