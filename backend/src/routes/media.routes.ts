@@ -10,6 +10,7 @@ import {
 } from '../controllers/media.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { mediaProbeLimiter, mediaDownloadLimiter } from '../middleware/rateLimit.middleware';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -17,12 +18,12 @@ const router = Router();
 // from the server, so this must never be anonymous.
 router.use(authenticate);
 
-router.get('/capabilities', getCapabilities);
-router.post('/probe', mediaProbeLimiter, probeUrl);
-router.post('/downloads', mediaDownloadLimiter, startDownloads);
-router.get('/downloads', listDownloads);
-router.get('/downloads/:id', getDownload);
-router.get('/downloads/:id/file', downloadFile);
-router.delete('/downloads/:id', deleteDownload);
+router.get('/capabilities', asyncHandler(getCapabilities));
+router.post('/probe', mediaProbeLimiter, asyncHandler(probeUrl));
+router.post('/downloads', mediaDownloadLimiter, asyncHandler(startDownloads));
+router.get('/downloads', asyncHandler(listDownloads));
+router.get('/downloads/:id', asyncHandler(getDownload));
+router.get('/downloads/:id/file', asyncHandler(downloadFile));
+router.delete('/downloads/:id', asyncHandler(deleteDownload));
 
 export default router;

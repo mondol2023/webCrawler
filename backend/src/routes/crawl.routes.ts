@@ -10,18 +10,19 @@ import {
 } from '../controllers/crawl.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { crawlLimiter } from '../middleware/rateLimit.middleware';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
 // All crawl routes require authentication
 router.use(authenticate);
 
-router.post('/', crawlLimiter, submitCrawlJob);
-router.get('/', listCrawlJobs);
-router.get('/:jobId', getCrawlJob);
-router.get('/:jobId/results', getJobResults);
-router.get('/:jobId/results/:resultId', getResultDetail);
-router.patch('/:jobId/results/:resultId/visibility', setResultVisibility);
-router.patch('/:jobId/cancel', cancelCrawlJob);
+router.post('/', crawlLimiter, asyncHandler(submitCrawlJob));
+router.get('/', asyncHandler(listCrawlJobs));
+router.get('/:jobId', asyncHandler(getCrawlJob));
+router.get('/:jobId/results', asyncHandler(getJobResults));
+router.get('/:jobId/results/:resultId', asyncHandler(getResultDetail));
+router.patch('/:jobId/results/:resultId/visibility', asyncHandler(setResultVisibility));
+router.patch('/:jobId/cancel', asyncHandler(cancelCrawlJob));
 
 export default router;

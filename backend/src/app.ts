@@ -62,13 +62,19 @@ app.use((_req, res) => {
 });
 
 // Central error handler (last resort for anything that slips past controllers)
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+app.use((err: Error, _req: Request, res: Response, next: NextFunction) => {
   logger.error('Unhandled error:', err);
+  // A streaming response (e.g. a file download) may already be under way;
+  // let Express close the connection instead of writing a second response.
+  if (res.headersSent) return next(err);
   res.status(500).json({ success: false, message: 'Internal server error' });
 });
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 async function bootstrap(): Promise<void> {
+  // Log stray promise rejections instead of letting Node terminate the process.
+  process.on('unhandledRejection', (reason) => logger.error('Unhandled rejection:', reason));
+
   // Bind the port first so the API (and the Vite dev proxy) stays up even when
   // Mongo is unreachable — connectDB retries in the background.
   const port = parseInt(env.PORT, 10);
