@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import mongoose from 'mongoose';
-import { CrawlJob } from '../models/CrawlJob.model';
+import { CrawlJob, isCrawlJobStatus } from '../models/CrawlJob.model';
 import { CrawlResult } from '../models/CrawlResult.model';
 import { User } from '../models/User.model';
 import { addCrawlJob, removeCrawlJob } from '../queue/crawl.queue';
@@ -114,10 +114,10 @@ export async function listCrawlJobs(req: Request, res: Response): Promise<void> 
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
-    const status = req.query.status as string | undefined;
+    const { status } = req.query;
 
     const filter: Record<string, unknown> = { userId: req.user!.userId };
-    if (status) filter.status = status;
+    if (isCrawlJobStatus(status)) filter.status = status;
 
     const [jobs, total] = await Promise.all([
       CrawlJob.find(filter)

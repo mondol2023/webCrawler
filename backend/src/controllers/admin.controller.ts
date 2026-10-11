@@ -2,9 +2,10 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import mongoose from 'mongoose';
 import { User } from '../models/User.model';
-import { CrawlJob } from '../models/CrawlJob.model';
+import { CrawlJob, isCrawlJobStatus } from '../models/CrawlJob.model';
 import { CrawlResult } from '../models/CrawlResult.model';
 import { logger } from '../utils/logger';
+import { escapeRegex } from '../utils/escapeRegex';
 
 // ─── Platform Stats ────────────────────────────────────────────────────────
 export async function getPlatformStats(_req: Request, res: Response): Promise<void> {
@@ -62,7 +63,8 @@ export async function listUsers(req: Request, res: Response): Promise<void> {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
-    const search = req.query.search as string | undefined;
+    const rawSearch = req.query.search;
+    const search = typeof rawSearch === 'string' ? escapeRegex(rawSearch.slice(0, 100)) : '';
 
     const filter: Record<string, unknown> = {};
     if (search) {
@@ -138,6 +140,12 @@ const crawlLimitSchema = z.object({
 export async function updateUserCrawlLimit(req: Request, res: Response): Promise<void> {
   try {
     const { userId } = req.params;
+
+    if (!mongoose.isValidObjectId(userId)) {
+      res.status(400).json({ success: false, message: 'Invalid user ID' });
+      return;
+    }
+
     const body = crawlLimitSchema.safeParse(req.body);
 
     if (!body.success) {
@@ -168,10 +176,10 @@ export async function listAllJobs(req: Request, res: Response): Promise<void> {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
-    const status = req.query.status as string | undefined;
+    const { status } = req.query;
 
     const filter: Record<string, unknown> = {};
-    if (status) filter.status = status;
+    if (isCrawlJobStatus(status)) filter.status = status;
 
     const [jobs, total] = await Promise.all([
       CrawlJob.find(filter)

@@ -1,12 +1,19 @@
 import mongoose, { Document, Model, Schema } from 'mongoose';
 
-export type CrawlJobStatus =
-  | 'pending'
-  | 'queued'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'cancelled';
+export const CRAWL_JOB_STATUSES = [
+  'pending',
+  'queued',
+  'running',
+  'completed',
+  'failed',
+  'cancelled',
+] as const;
+
+export type CrawlJobStatus = (typeof CRAWL_JOB_STATUSES)[number];
+
+export function isCrawlJobStatus(value: unknown): value is CrawlJobStatus {
+  return typeof value === 'string' && (CRAWL_JOB_STATUSES as readonly string[]).includes(value);
+}
 
 export interface ICrawlJob extends Document {
   _id: mongoose.Types.ObjectId;
