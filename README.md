@@ -37,7 +37,7 @@ cd backend
 npm install
 npx playwright install chromium   # one-time, for the Playwright fallback
 cp .env.example .env              # then fill in the values
-npm run dev                       # starts API + Socket.io + crawl worker on :5000
+npm run dev                       # starts API + Socket.io + crawl worker on :8080
 ```
 
 Generate strong JWT secrets for `.env`:
@@ -62,7 +62,7 @@ rights, set a user's `role` to `admin` in MongoDB.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `NODE_ENV` | `development` \| `production` \| `test` | `development` |
-| `PORT` | API port | `5000` |
+| `PORT` | API port | `8080` |
 | `CLIENT_URL` | Frontend origin (CORS + Socket.io) | `http://localhost:5173` |
 | `MONGO_URI` | MongoDB connection string | — (required) |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
