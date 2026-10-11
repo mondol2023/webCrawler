@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import jwt from 'jsonwebtoken';
 import { User } from '../models/User.model';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
 import { logger } from '../utils/logger';
@@ -24,6 +25,14 @@ const cookieOptions = {
   sameSite: 'strict' as const,
 };
 
+/** Cookie lifetime in ms, taken from the token's own `exp` so the two never drift. */
+export function cookieMaxAge(token: string): number {
+  const decoded = jwt.decode(token);
+  const exp = decoded && typeof decoded === 'object' ? decoded.exp : undefined;
+  if (typeof exp !== 'number') return 0;
+  return Math.max(0, exp * 1000 - Date.now());
+}
+
 // ─── Controllers ──────────────────────────────────────────────────────────
 export async function register(req: Request, res: Response): Promise<void> {
   try {
@@ -47,8 +56,8 @@ export async function register(req: Request, res: Response): Promise<void> {
     const refreshToken = signRefreshToken(user);
 
     res
-      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
-      .cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 })
+      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: cookieMaxAge(accessToken) })
+      .cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: cookieMaxAge(refreshToken) })
       .status(201)
       .json({
         success: true,
@@ -89,8 +98,8 @@ export async function login(req: Request, res: Response): Promise<void> {
     const refreshToken = signRefreshToken(user);
 
     res
-      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
-      .cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 })
+      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: cookieMaxAge(accessToken) })
+      .cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: cookieMaxAge(refreshToken) })
       .json({
         success: true,
         message: 'Login successful',
@@ -124,8 +133,8 @@ export async function refreshToken(req: Request, res: Response): Promise<void> {
     const newRefreshToken = signRefreshToken(user);
 
     res
-      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
-      .cookie('refreshToken', newRefreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 })
+      .cookie('accessToken', accessToken, { ...cookieOptions, maxAge: cookieMaxAge(accessToken) })
+      .cookie('refreshToken', newRefreshToken, { ...cookieOptions, maxAge: cookieMaxAge(newRefreshToken) })
       .json({ success: true, data: { accessToken } });
   } catch {
     res.status(401).json({ success: false, message: 'Invalid or expired refresh token' });

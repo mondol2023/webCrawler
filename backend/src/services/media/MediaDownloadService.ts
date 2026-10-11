@@ -29,6 +29,9 @@ import type { ProxyConfig, Restriction } from './types';
 /** How often progress is written to Mongo (socket updates are more frequent). */
 const DB_PROGRESS_INTERVAL_MS = 1_500;
 
+/** Minimum gap between `media:progress` socket emits; terminal events are not throttled. */
+export const SOCKET_PROGRESS_INTERVAL_MS = 250;
+
 type Outcome = {
   filePath?: string;
   restriction?: Restriction;
@@ -180,6 +183,7 @@ export class MediaDownloadService {
     const stem = record._id.toString();
 
     let lastDbWrite = 0;
+    let lastEmit = 0;
 
     // The synthetic "Audio only (MP3)" candidate carries no format id — the
     // extractor picks the best audio track itself.
@@ -198,9 +202,12 @@ export class MediaDownloadService {
         record.progress = Math.min(99, Math.round(percent));
         record.downloadedBytes = downloaded;
         record.totalBytes = total;
-        this.emit(record, 'media:progress');
-
         const now = Date.now();
+        if (now - lastEmit >= SOCKET_PROGRESS_INTERVAL_MS) {
+          lastEmit = now;
+          this.emit(record, 'media:progress');
+        }
+
         if (now - lastDbWrite > DB_PROGRESS_INTERVAL_MS) {
           lastDbWrite = now;
           void MediaDownload.updateOne(
@@ -288,6 +295,7 @@ export class MediaDownloadService {
 
     let received = 0;
     let lastDbWrite = 0;
+    let lastEmit = 0;
     let overflowed = false;
 
     response.data.on('data', (chunk: Buffer) => {
@@ -302,9 +310,12 @@ export class MediaDownloadService {
 
       record.downloadedBytes = received;
       record.progress = total > 0 ? Math.min(99, Math.round((received / total) * 100)) : 0;
-      this.emit(record, 'media:progress');
-
       const now = Date.now();
+      if (now - lastEmit >= SOCKET_PROGRESS_INTERVAL_MS) {
+        lastEmit = now;
+        this.emit(record, 'media:progress');
+      }
+
       if (now - lastDbWrite > DB_PROGRESS_INTERVAL_MS) {
         lastDbWrite = now;
         void MediaDownload.updateOne(

@@ -11,13 +11,8 @@ class RedisClient {
       RedisClient.instance = new IORedis(env.REDIS_URL, {
         maxRetriesPerRequest: null, // Required for BullMQ
         enableReadyCheck: false,
-        retryStrategy: (times: number) => {
-          if (times > 10) {
-            logger.error('Redis: too many retries, giving up');
-            return null;
-          }
-          return Math.min(times * 200, 2000);
-        },
+        // Never give up: a Redis restart should not leave the API permanently disconnected.
+        retryStrategy: (times: number) => Math.min(times * 200, 5000),
       });
 
       RedisClient.instance.on('connect', () => logger.info('✅ Redis connected'));

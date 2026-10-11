@@ -163,7 +163,14 @@ export class PageMediaScanner {
       // Merge: DOM entries win on conflict because they carry posters and labels.
       const merged = new Map<string, Hit>();
       for (const hit of networkHits.values()) merged.set(hit.url, hit);
-      for (const hit of domHits) merged.set(hit.url, { ...merged.get(hit.url), ...hit });
+      for (const hit of domHits) {
+        // Copy only fields the DOM actually set, so an undefined DOM value
+        // never wipes out one the network capture found.
+        const defined = Object.fromEntries(
+          Object.entries(hit).filter(([, v]) => v !== undefined)
+        ) as Hit;
+        merged.set(hit.url, { ...merged.get(hit.url), ...defined });
+      }
 
       const candidates = this.toCandidates([...merged.values()], url);
 

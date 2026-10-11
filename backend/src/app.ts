@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { createServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
+import mongoose from 'mongoose';
 
 import { env } from './config/env';
 import { connectDB } from './config/db';
@@ -12,6 +13,8 @@ import { globalLimiter } from './middleware/rateLimit.middleware';
 import { initSocket } from './services/socketService';
 import { startCrawlWorker } from './queue/crawl.worker';
 import { startMediaWorker } from './queue/media.worker';
+import { crawlQueue } from './queue/crawl.queue';
+import { mediaQueue } from './queue/media.queue';
 import { closeBrowser } from './services/crawler/PlaywrightCrawler';
 
 // Routes
@@ -91,12 +94,23 @@ async function bootstrap(): Promise<void> {
   const mediaWorker = startMediaWorker();
 
   // ─── Graceful shutdown ───────────────────────────────────────────────────
+  let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
+    // A second Ctrl+C must not start a parallel teardown.
+    if (shuttingDown) return;
+    shuttingDown = true;
     logger.info(`${signal} received, shutting down gracefully...`);
-    httpServer.close();
-    await worker.close();
-    await mediaWorker.close();
-    await closeBrowser();
+    try {
+      httpServer.close();
+      await worker.close();
+      await mediaWorker.close();
+      await crawlQueue.close();
+      await mediaQueue.close();
+      await closeBrowser();
+      await mongoose.connection.close();
+    } catch (err) {
+      logger.error('Error during shutdown:', err);
+    }
     process.exit(0);
   };
 

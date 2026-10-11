@@ -233,6 +233,15 @@ export async function getDownload(req: Request, res: Response): Promise<void> {
   res.json({ success: true, data: { download: record.toJSON() } });
 }
 
+/**
+ * RFC 6266 header: an ASCII `filename` for old clients plus a UTF-8 `filename*`
+ * so names like "日本語.mp4" survive intact.
+ */
+export function contentDisposition(name: string): string {
+  const fallback = name.replace(/[^\x20-\x7e]|"/g, '_');
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
 // ─── File ──────────────────────────────────────────────────────────────────
 export async function downloadFile(req: Request, res: Response): Promise<void> {
   const record = await findOwned(req, res);
@@ -260,10 +269,7 @@ export async function downloadFile(req: Request, res: Response): Promise<void> {
 
   res.setHeader('Content-Type', record.mimeType || 'application/octet-stream');
   res.setHeader('Content-Length', String(size));
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="${encodeURIComponent(suggestedFileName(record))}"`
-  );
+  res.setHeader('Content-Disposition', contentDisposition(suggestedFileName(record)));
 
   const stream = createReadStream(resolved);
   stream.on('error', (err) => {
