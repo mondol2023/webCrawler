@@ -1,7 +1,8 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { getBaseUrl, isValidUrl, normalizeUrl } from '../../utils/urlUtils';
+import { getBaseUrl, isSameDomain, isValidUrl, normalizeUrl } from '../../utils/urlUtils';
 import { logger } from '../../utils/logger';
+import { publicAgents } from '../media/netGuard';
 
 const USER_AGENT =
   'Mozilla/5.0 (compatible; WIPBot/1.0; +https://webintelligence.io/bot)';
@@ -23,13 +24,14 @@ export class SitemapService {
     }
 
     const discovered = new Set<string>();
-    await this.collect(`${base}/sitemap.xml`, discovered, maxUrls, 0);
+    await this.collect(`${base}/sitemap.xml`, startUrl, discovered, maxUrls, 0);
 
     return [...discovered].slice(0, maxUrls);
   }
 
   private async collect(
     sitemapUrl: string,
+    startUrl: string,
     out: Set<string>,
     maxUrls: number,
     depth: number
@@ -48,12 +50,12 @@ export class SitemapService {
       const childSitemaps: string[] = [];
       $('sitemap > loc').each((_i, el) => {
         const loc = $(el).text().trim();
-        if (loc && isValidUrl(loc)) childSitemaps.push(loc);
+        if (loc && isValidUrl(loc) && isSameDomain(loc, startUrl)) childSitemaps.push(loc);
       });
 
       for (const child of childSitemaps.slice(0, MAX_SITEMAP_INDEX_FOLLOW)) {
         if (out.size >= maxUrls) break;
-        await this.collect(child, out, maxUrls, depth + 1);
+        await this.collect(child, startUrl, out, maxUrls, depth + 1);
       }
       return;
     }
@@ -61,13 +63,15 @@ export class SitemapService {
     $('url > loc').each((_i, el) => {
       if (out.size >= maxUrls) return;
       const loc = $(el).text().trim();
-      if (loc && isValidUrl(loc)) out.add(normalizeUrl(loc));
+      // A sitemap may list any host; only the crawled site's own pages count.
+      if (loc && isValidUrl(loc) && isSameDomain(loc, startUrl)) out.add(normalizeUrl(loc));
     });
   }
 
   private async fetch(url: string): Promise<string | null> {
     try {
       const response = await axios.get<string>(url, {
+        ...publicAgents(),
         timeout: SITEMAP_TIMEOUT,
         responseType: 'text',
         maxRedirects: 3,

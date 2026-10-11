@@ -8,6 +8,7 @@ import {
   isValidUrl,
 } from '../../utils/urlUtils';
 import { logger } from '../../utils/logger';
+import { publicAgents } from '../media/netGuard';
 
 /** Shared shape returned by every page-fetching strategy (Cheerio / Playwright). */
 export interface CrawlPageResult {
@@ -32,6 +33,7 @@ export class CheerioCrawler {
   async fetchPage(url: string): Promise<CrawlPageResult | null> {
     try {
       const response = await axios.get<string>(url, {
+        ...publicAgents(),
         timeout: REQUEST_TIMEOUT,
         maxContentLength: MAX_CONTENT_LENGTH,
         maxRedirects: 5,

@@ -7,6 +7,7 @@ import { User } from '../models/User.model';
 import { addCrawlJob } from '../queue/crawl.queue';
 import { logger } from '../utils/logger';
 import { isValidUrl } from '../utils/urlUtils';
+import { assertPublicUrl, BlockedHostError } from '../services/media/netGuard';
 
 // ─── Validation ────────────────────────────────────────────────────────────
 const submitSchema = z.object({
@@ -34,6 +35,16 @@ export async function submitCrawlJob(req: Request, res: Response): Promise<void>
     if (!isValidUrl(url)) {
       res.status(400).json({ success: false, message: 'Invalid URL format' });
       return;
+    }
+
+    try {
+      await assertPublicUrl(url);
+    } catch (err) {
+      if (err instanceof BlockedHostError) {
+        res.status(400).json({ success: false, message: err.message });
+        return;
+      }
+      throw err;
     }
 
     // Check active job limit per user (respects the per-user configurable limit)

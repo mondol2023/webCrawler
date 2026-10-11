@@ -8,6 +8,7 @@ import {
 } from '../../utils/urlUtils';
 import { logger } from '../../utils/logger';
 import { CrawlPageResult } from './CheerioCrawler';
+import { installRequestGuard } from './playwrightGuard';
 
 let browserInstance: Browser | null = null;
 
@@ -59,6 +60,11 @@ export class PlaywrightCrawler {
     const page = await this.context!.newPage();
 
     try {
+      // SSRF guard first: routes run in reverse registration order, so the
+      // type-blocker below aborts media early and everything else falls
+      // through to this guard.
+      await installRequestGuard(page);
+
       // Block unnecessary resources to speed up crawl
       await page.route('**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,mp4,mp3}', (route) =>
         route.abort()

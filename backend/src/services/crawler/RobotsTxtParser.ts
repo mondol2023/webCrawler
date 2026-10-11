@@ -2,6 +2,7 @@ import axios from 'axios';
 import robotsParser from 'robots-parser';
 import { getBaseUrl } from '../../utils/urlUtils';
 import { logger } from '../../utils/logger';
+import { publicAgents } from '../media/netGuard';
 
 // robots-parser exposes only a default export; derive the instance type from it.
 type Robot = ReturnType<typeof robotsParser>;
@@ -49,6 +50,7 @@ export class RobotsTxtService {
     const robotsUrl = `${host}/robots.txt`;
     try {
       const response = await axios.get<string>(robotsUrl, {
+        ...publicAgents(),
         timeout: ROBOTS_TIMEOUT,
         responseType: 'text',
         maxRedirects: 3,
