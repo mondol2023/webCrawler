@@ -1,4 +1,4 @@
-import express, { NextFunction, Request, Response } from 'express';
+import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -10,6 +10,7 @@ import { env } from './config/env';
 import { connectDB } from './config/db';
 import { logger } from './utils/logger';
 import { globalLimiter } from './middleware/rateLimit.middleware';
+import { errorHandler } from './middleware/error.middleware';
 import { initSocket } from './services/socketService';
 import { startCrawlWorker } from './queue/crawl.worker';
 import { startMediaWorker } from './queue/media.worker';
@@ -23,6 +24,7 @@ import crawlRoutes from './routes/crawl.routes';
 import mediaRoutes from './routes/media.routes';
 import adminRoutes from './routes/admin.routes';
 import publicRoutes from './routes/public.routes';
+import healthRoutes from './routes/health.routes';
 
 // ─── App Setup ─────────────────────────────────────────────────────────────
 const app = express();
@@ -42,9 +44,15 @@ initSocket(io);
 // ─── Middleware ────────────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({ origin: env.CLIENT_URL, credentials: true }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// No endpoint takes large bodies; a small cap keeps oversized payloads out cheaply.
+app.use(express.json({ limit: '100kb' }));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 app.use(cookieParser());
+
+// Health probes sit ahead of the rate limiter so frequent polling by a load
+// balancer never eats into (or gets blocked by) the request budget.
+app.use('/api/health', healthRoutes);
+
 app.use(globalLimiter);
 
 // ─── Routes ───────────────────────────────────────────────────────────────
@@ -54,24 +62,13 @@ app.use('/api/media', mediaRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/public', publicRoutes);
 
-// Health check
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
 // 404
 app.use((_req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
 // Central error handler (last resort for anything that slips past controllers)
-app.use((err: Error, _req: Request, res: Response, next: NextFunction) => {
-  logger.error('Unhandled error:', err);
-  // A streaming response (e.g. a file download) may already be under way;
-  // let Express close the connection instead of writing a second response.
-  if (res.headersSent) return next(err);
-  res.status(500).json({ success: false, message: 'Internal server error' });
-});
+app.use(errorHandler);
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 async function bootstrap(): Promise<void> {

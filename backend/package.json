@@ -23,7 +23,6 @@
     "https-proxy-agent": "^7.0.6",
     "ioredis": "^5.3.2",
     "jsonwebtoken": "^9.0.2",
-    "mongodb": "^7.5.0",
     "mongoose": "^8.24.2",
     "playwright": "^1.44.1",
     "robots-parser": "^3.0.1",

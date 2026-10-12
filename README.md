@@ -116,6 +116,15 @@ frontend/src
 | PATCH | `/api/admin/users/:id/toggle-status` | admin | Activate/suspend |
 | PATCH | `/api/admin/users/:id/crawl-limit` | admin | Set crawl limit |
 | GET | `/api/admin/jobs` | admin | All jobs |
+| GET | `/api/health/live` | – | Process is up (always 200; `/api/health` is an alias) |
+| GET | `/api/health/ready` | – | 200 when MongoDB and Redis answer, otherwise 503 with per-check status |
+
+Health probes are not rate-limited. JSON and form bodies are capped at 100 kB (larger bodies get `413`).
+
+## Continuous Integration
+
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `main`:
+backend typecheck, tests and build; frontend lint and build. The Node version comes from `.nvmrc`.
 
 ## Production Build
 
