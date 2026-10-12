@@ -34,6 +34,7 @@ const statusTone: Record<CrawlJobStatus, Tone> = {
   pending: 'gray',
   queued: 'amber',
   running: 'blue',
+  cancelling: 'amber',
   completed: 'green',
   failed: 'red',
   cancelled: 'gray',
@@ -42,7 +43,7 @@ const statusTone: Record<CrawlJobStatus, Tone> = {
 export function StatusBadge({ status }: { status: CrawlJobStatus }) {
   return (
     <Badge tone={statusTone[status]} className="capitalize">
-      {status === 'running' && (
+      {(status === 'running' || status === 'cancelling') && (
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
       )}
       {status}

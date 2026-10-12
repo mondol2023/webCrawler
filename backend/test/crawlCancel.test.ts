@@ -7,10 +7,17 @@ vi.mock('../src/queue/crawl.queue', () => ({
   removeCrawlJob: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../src/queue/crawlCancelFlag', () => ({
+  requestCrawlCancel: vi.fn().mockResolvedValue(undefined),
+  isCrawlCancelRequested: vi.fn().mockResolvedValue(false),
+  clearCrawlCancel: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { CrawlJob } from '../src/models/CrawlJob.model';
-import { claimCrawlJob } from '../src/queue/crawl.worker';
+import { claimCrawlJob, finalizeCrawl, watchCancel } from '../src/queue/crawl.worker';
 import { cancelCrawlJob } from '../src/controllers/crawl.controller';
 import { removeCrawlJob } from '../src/queue/crawl.queue';
+import { requestCrawlCancel, isCrawlCancelRequested } from '../src/queue/crawlCancelFlag';
 
 const ID = '64b000000000000000000003';
 
@@ -66,14 +73,108 @@ describe('cancelCrawlJob', () => {
     expect(removeCrawlJob).toHaveBeenCalledWith(ID);
   });
 
-  it('400s with the current status when the job is already running', async () => {
+  it('moves a running job to cancelling and raises the Redis cancel flag', async () => {
     vi.mocked(removeCrawlJob).mockClear();
+    vi.mocked(requestCrawlCancel).mockClear();
+    const spy = vi
+      .spyOn(CrawlJob, 'findOneAndUpdate')
+      .mockResolvedValueOnce(null as never) // not pending/queued
+      .mockResolvedValueOnce({ _id: ID } as never); // running -> cancelling
+    const res = stubRes();
+    await cancelCrawlJob(req(ID), res as unknown as Response);
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { message: string }).message).toBe('Cancelling job');
+    const filter = spy.mock.calls[1][0] as { status: string };
+    expect(filter.status).toBe('running');
+    expect(spy.mock.calls[1][1]).toMatchObject({ status: 'cancelling' });
+    expect(requestCrawlCancel).toHaveBeenCalledWith(ID);
+    expect(removeCrawlJob).not.toHaveBeenCalled();
+  });
+
+  it('is idempotent for a job that is already cancelling', async () => {
+    vi.mocked(requestCrawlCancel).mockClear();
     vi.spyOn(CrawlJob, 'findOneAndUpdate').mockResolvedValue(null as never);
-    vi.spyOn(CrawlJob, 'findOne').mockResolvedValue({ status: 'running' } as never);
+    vi.spyOn(CrawlJob, 'findOne').mockResolvedValue({ status: 'cancelling' } as never);
+    const res = stubRes();
+    await cancelCrawlJob(req(ID), res as unknown as Response);
+    expect(res.statusCode).toBe(200);
+    expect(requestCrawlCancel).toHaveBeenCalledWith(ID);
+  });
+
+  it('400s with the current status when the job already finished', async () => {
+    vi.spyOn(CrawlJob, 'findOneAndUpdate').mockResolvedValue(null as never);
+    vi.spyOn(CrawlJob, 'findOne').mockResolvedValue({ status: 'completed' } as never);
     const res = stubRes();
     await cancelCrawlJob(req(ID), res as unknown as Response);
     expect(res.statusCode).toBe(400);
-    expect((res.body as { message: string }).message).toBe("Cannot cancel a job with status 'running'");
-    expect(removeCrawlJob).not.toHaveBeenCalled();
+    expect((res.body as { message: string }).message).toBe("Cannot cancel a job with status 'completed'");
+  });
+
+  it('404s a job that does not exist or belongs to someone else', async () => {
+    vi.spyOn(CrawlJob, 'findOneAndUpdate').mockResolvedValue(null as never);
+    vi.spyOn(CrawlJob, 'findOne').mockResolvedValue(null as never);
+    const res = stubRes();
+    await cancelCrawlJob(req(ID), res as unknown as Response);
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('finalizeCrawl', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('marks a cancelled crawl cancelled, keeping progress', async () => {
+    const spy = vi.spyOn(CrawlJob, 'findByIdAndUpdate').mockResolvedValue({} as never);
+    expect(await finalizeCrawl(ID, true)).toBe('cancelled');
+    expect(spy.mock.calls[0][1]).toMatchObject({ status: 'cancelled' });
+    expect(spy.mock.calls[0][1]).not.toHaveProperty('progress');
+  });
+
+  it('completes a running job', async () => {
+    const spy = vi.spyOn(CrawlJob, 'findOneAndUpdate').mockResolvedValue({ _id: ID } as never);
+    expect(await finalizeCrawl(ID, false)).toBe('completed');
+    expect((spy.mock.calls[0][0] as { status: string }).status).toBe('running');
+  });
+
+  it('turns into cancelled when a cancel request landed just as the crawl finished', async () => {
+    vi.spyOn(CrawlJob, 'findOneAndUpdate').mockResolvedValue(null as never);
+    const upd = vi.spyOn(CrawlJob, 'findByIdAndUpdate').mockResolvedValue({} as never);
+    expect(await finalizeCrawl(ID, false)).toBe('cancelled');
+    expect(upd.mock.calls[0][1]).toMatchObject({ status: 'cancelled' });
+  });
+});
+
+describe('watchCancel', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.mocked(isCrawlCancelRequested).mockReset().mockResolvedValue(false);
+  });
+
+  it('aborts the signal within a second of the Redis flag appearing, and stops polling on dispose', async () => {
+    vi.useFakeTimers();
+    const w = watchCancel(ID);
+    expect(w.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(w.signal.aborted).toBe(false);
+
+    vi.mocked(isCrawlCancelRequested).mockResolvedValue(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(w.signal.aborted).toBe(true);
+
+    const calls = vi.mocked(isCrawlCancelRequested).mock.calls.length;
+    w.dispose();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(vi.mocked(isCrawlCancelRequested).mock.calls.length).toBe(calls);
+  });
+
+  it('survives a Redis error and keeps polling', async () => {
+    vi.useFakeTimers();
+    vi.mocked(isCrawlCancelRequested).mockRejectedValueOnce(new Error('redis down'));
+    const w = watchCancel(ID);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(w.signal.aborted).toBe(false);
+    vi.mocked(isCrawlCancelRequested).mockResolvedValue(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(w.signal.aborted).toBe(true);
+    w.dispose();
   });
 });

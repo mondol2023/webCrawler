@@ -4,6 +4,7 @@ export const CRAWL_JOB_STATUSES = [
   'pending',
   'queued',
   'running',
+  'cancelling',
   'completed',
   'failed',
   'cancelled',
@@ -65,7 +66,7 @@ const crawlJobSchema = new Schema<ICrawlJob>(
     },
     status: {
       type: String,
-      enum: ['pending', 'queued', 'running', 'completed', 'failed', 'cancelled'],
+      enum: [...CRAWL_JOB_STATUSES],
       default: 'pending',
       index: true,
     },

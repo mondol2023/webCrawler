@@ -17,7 +17,7 @@ const FILTERS: { label: string; value?: CrawlJobStatus }[] = [
   { label: 'Failed', value: 'failed' },
 ];
 
-const ACTIVE_STATUSES: CrawlJobStatus[] = ['pending', 'queued', 'running'];
+const ACTIVE_STATUSES: CrawlJobStatus[] = ['pending', 'queued', 'running', 'cancelling'];
 
 export default function Dashboard() {
   const [status, setStatus] = useState<CrawlJobStatus | undefined>(undefined);

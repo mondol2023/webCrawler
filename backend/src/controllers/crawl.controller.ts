@@ -5,6 +5,7 @@ import { CrawlJob, isCrawlJobStatus } from '../models/CrawlJob.model';
 import { CrawlResult } from '../models/CrawlResult.model';
 import { User } from '../models/User.model';
 import { addCrawlJob, removeCrawlJob } from '../queue/crawl.queue';
+import { requestCrawlCancel } from '../queue/crawlCancelFlag';
 import { logger } from '../utils/logger';
 import { isValidUrl } from '../utils/urlUtils';
 import { assertPublicUrl, BlockedHostError } from '../services/media/netGuard';
@@ -56,7 +57,7 @@ export async function submitCrawlJob(req: Request, res: Response): Promise<void>
 
     const activeCount = await CrawlJob.countDocuments({
       userId: req.user!.userId,
-      status: { $in: ['pending', 'queued', 'running'] },
+      status: { $in: ['pending', 'queued', 'running', 'cancelling'] },
     });
 
     if (activeCount >= user.crawlLimit) {
@@ -330,9 +331,23 @@ export async function cancelCrawlJob(req: Request, res: Response): Promise<void>
     );
 
     if (!cancelled) {
-      const job = await CrawlJob.findOne({ _id: jobId, userId: req.user!.userId });
+      // Not waiting in the queue: a running crawl is told to stop via a Redis
+      // flag that its worker polls; the worker finishes the transition.
+      const stopping = await CrawlJob.findOneAndUpdate(
+        { _id: jobId, userId: req.user!.userId, status: 'running' },
+        { status: 'cancelling' },
+        { new: true }
+      );
+
+      const job = stopping ?? (await CrawlJob.findOne({ _id: jobId, userId: req.user!.userId }));
       if (!job) {
         res.status(404).json({ success: false, message: 'Job not found' });
+        return;
+      }
+      // Re-sending the cancel for a job that is already stopping is harmless.
+      if (stopping || job.status === 'cancelling') {
+        await requestCrawlCancel(jobId);
+        res.json({ success: true, message: 'Cancelling job' });
         return;
       }
       res.status(400).json({

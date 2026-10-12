@@ -4,17 +4,18 @@ import { Card } from '@/components/ui/Card';
 import { StatusBadge } from '@/components/ui/Badge';
 import { ProgressBar } from '@/components/ui/Misc';
 import { useAppSelector } from '@/app/hooks';
+import { resolveStatus } from '@/features/crawl/crawlSlice';
 import { formatRelative, truncate } from '@/lib/utils';
 import type { CrawlJob } from '@/lib/types';
 
 export function JobCard({ job }: { job: CrawlJob }) {
   // Overlay live socket state (if any) on top of the persisted job.
   const live = useAppSelector((s) => s.crawl.live[job._id]);
-  const status = live?.status ?? job.status;
+  const status = resolveStatus(live, job.status);
   const progress = live?.progress ?? job.progress;
   const pagesCrawled = live?.pagesCrawled ?? job.pagesCrawled;
   const pagesMatched = live?.pagesMatched ?? job.pagesMatched;
-  const isActive = status === 'running' || status === 'queued' || status === 'pending';
+  const isActive = status === 'running' || status === 'cancelling' || status === 'queued' || status === 'pending';
 
   return (
     <Card className="transition-shadow hover:shadow-md">

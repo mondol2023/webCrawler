@@ -107,11 +107,11 @@ Reason: W12's fixture site makes W2, W3 and W5 testable, and W4 has to land befo
 ### Phase 1 — Crawl-engine correctness (3–5 days)
 
 **W1. Cancellation and frontier**
-- [ ] Let `cancelCrawlJob` move `running` jobs to `cancelling`. Set a Redis key `crawl:cancel:{jobId}`.
-- [ ] Have `CrawlOrchestrator` take an `AbortSignal`. Check it before each fetch and pass it to axios (`signal`) and Playwright (close the page). The worker builds the signal by polling the cancel key every 1 s, or by Redis pub/sub.
-- [ ] Final state is `cancelled`, keeping the partial results. Emit `job:cancelled`.
-- [ ] Frontier: keep an `enqueued` Set. Check `visited ∪ enqueued` **before** pushing. Drop links deeper than `maxDepth` at enqueue time. Use a head index or a deque instead of `shift()`.
-- [ ] Throttle progress by time (≤ 1 event/sec) instead of "every 5 pages". Report `pagesDiscovered` as the true frontier size.
+- [x] Let `cancelCrawlJob` move `running` jobs to `cancelling`. Set a Redis key `crawl:cancel:{jobId}`.
+- [x] Have `CrawlOrchestrator` take an `AbortSignal`. Check it before each fetch and pass it to axios (`signal`) and Playwright (close the page). The worker builds the signal by polling the cancel key every 1 s, or by Redis pub/sub.
+- [x] Final state is `cancelled`, keeping the partial results. Emit `job:cancelled`.
+- [x] Frontier: keep an `enqueued` Set. Check `visited ∪ enqueued` **before** pushing. Drop links deeper than `maxDepth` at enqueue time. Use a head index or a deque instead of `shift()`.
+- [x] Throttle progress by time (≤ 1 event/sec) instead of "every 5 pages". Report `pagesDiscovered` as the true frontier size. *(Done: `Frontier` class; the worker polls the flag every 1 s and a retry of a cancelled job settles `cancelling` → `cancelled`.)*
 
 **W2. URL identity, dedup, encoding**
 - [ ] `canonicalizeUrl()`: lowercase scheme and host, drop default ports and fragments, strip tracking params (`utm_*`, `gclid`, `fbclid`, `mc_*`, `ref`), sort the remaining query params, and collapse `index.html`.

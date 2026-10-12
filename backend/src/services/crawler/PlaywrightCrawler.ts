@@ -66,10 +66,15 @@ export class PlaywrightCrawler {
     });
   }
 
-  async fetchPage(url: string): Promise<CrawlPageResult | null> {
+  async fetchPage(url: string, signal?: AbortSignal): Promise<CrawlPageResult | null> {
+    if (signal?.aborted) return null;
     if (!this.context) await this.init();
 
     const page = await this.context!.newPage();
+    // Closing the page makes any in-flight goto/content call reject at once,
+    // which is what lets a cancel interrupt a slow render.
+    const abortPage = () => void page.close().catch(() => undefined);
+    signal?.addEventListener('abort', abortPage, { once: true });
 
     try {
       // SSRF guard first: routes run in reverse registration order, so the
@@ -111,7 +116,8 @@ export class PlaywrightCrawler {
       logger.debug(`Playwright fetch failed for ${url}: ${(error as Error).message}`);
       return null;
     } finally {
-      await page.close();
+      signal?.removeEventListener('abort', abortPage);
+      await page.close().catch(() => undefined);
     }
   }
 

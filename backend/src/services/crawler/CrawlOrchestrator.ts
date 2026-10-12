@@ -5,7 +5,7 @@ import { SitemapService } from './SitemapParser';
 import { ContentAnalyzer, THIN_CONTENT_CHARS } from './ContentAnalyzer';
 import { CrawlResult } from '../../models/CrawlResult.model';
 import { CrawlJob } from '../../models/CrawlJob.model';
-import { normalizeUrl, shouldSkipUrl } from '../../utils/urlUtils';
+import { Frontier } from './Frontier';
 import { logger } from '../../utils/logger';
 import { emitToJob } from '../socketService';
 import mongoose from 'mongoose';
@@ -19,7 +19,17 @@ export interface CrawlOptions {
   maxDepth: number;
   maxPages: number;
   respectRobotsTxt: boolean;
+  /** Aborted by the worker when the user cancels a running crawl. */
+  signal?: AbortSignal;
 }
+
+export interface CrawlOutcome {
+  /** True when the crawl stopped early because of an abort; saved results are kept. */
+  cancelled: boolean;
+}
+
+/** Minimum gap between progress writes/events, however fast pages come in. */
+const PROGRESS_INTERVAL_MS = 1000;
 
 export class CrawlOrchestrator {
   private cheerioCrawler = new CheerioCrawler();
@@ -28,7 +38,7 @@ export class CrawlOrchestrator {
   private sitemapService = new SitemapService();
   private analyzer = new ContentAnalyzer();
 
-  async run(options: CrawlOptions): Promise<void> {
+  async run(options: CrawlOptions): Promise<CrawlOutcome> {
     const {
       jobId,
       userId,
@@ -38,16 +48,16 @@ export class CrawlOrchestrator {
       maxDepth,
       maxPages,
       respectRobotsTxt,
+      signal,
     } = options;
 
     try {
-      const visited = new Set<string>();
-      const queue: Array<{ url: string; depth: number }> = [
-        { url: normalizeUrl(url), depth: 0 },
-      ];
+      const frontier = new Frontier(maxDepth);
+      frontier.push(url, 0);
 
       let pagesCrawled = 0;
       let pagesMatched = 0;
+      let lastProgressAt = 0;
 
       // The single most-weighted page seen so far. We hold onto its raw HTML
       // (one page at a time) so we can build the cached snapshot after the crawl
@@ -60,19 +70,17 @@ export class CrawlOrchestrator {
       const sitemapUrls = await this.sitemapService.getUrls(url, maxPages);
       if (sitemapUrls.length > 0) {
         logger.info(`[Job ${jobId}] Sitemap: found ${sitemapUrls.length} URLs`);
-        sitemapUrls.forEach((u) => queue.push({ url: u, depth: 1 }));
+        sitemapUrls.forEach((u) => frontier.push(u, 1));
       }
 
-      const pagesDiscovered = queue.length;
-      await this.updateJobProgress(jobId, 0, pagesDiscovered, 0, 0);
+      await this.updateJobProgress(jobId, 0, frontier.discovered, 0, 0);
 
-      while (queue.length > 0 && pagesCrawled < maxPages) {
-        const current = queue.shift()!;
-        const normalized = normalizeUrl(current.url);
+      while (frontier.pending > 0 && pagesCrawled < maxPages) {
+        if (signal?.aborted) break;
 
-        if (visited.has(normalized)) continue;
-        if (shouldSkipUrl(normalized)) continue;
-        if (current.depth > maxDepth) continue;
+        // Entries were deduped, depth-checked and skip-filtered at enqueue.
+        const current = frontier.shift()!;
+        const normalized = current.url;
 
         // Robots.txt check
         if (respectRobotsTxt) {
@@ -83,16 +91,20 @@ export class CrawlOrchestrator {
           }
         }
 
-        visited.add(normalized);
+        if (signal?.aborted) break;
 
         // Fetch page — try Cheerio first, fallback to Playwright
-        let result = await this.cheerioCrawler.fetchPage(normalized);
+        let result = await this.cheerioCrawler.fetchPage(normalized, signal);
         let usedPlaywright = false;
+
+        // A fetch that failed because we aborted it is not a reason to try again.
+        if (signal?.aborted) break;
 
         if (!result || result.statusCode >= 400) {
           logger.debug(`[Job ${jobId}] Cheerio failed, trying Playwright: ${normalized}`);
-          result = await this.playwrightCrawler.fetchPage(normalized);
+          result = await this.playwrightCrawler.fetchPage(normalized, signal);
           usedPlaywright = true;
+          if (signal?.aborted) break;
         }
 
         if (!result) {
@@ -114,11 +126,11 @@ export class CrawlOrchestrator {
         // page — Cheerio received the empty SPA shell and cannot run its JS, so
         // the status-code check above never triggered the fallback. Re-fetch
         // through Playwright and keep whichever render yielded more text.
-        if (!usedPlaywright && analysis.contentLength < THIN_CONTENT_CHARS) {
+        if (!usedPlaywright && !signal?.aborted && analysis.contentLength < THIN_CONTENT_CHARS) {
           logger.debug(
             `[Job ${jobId}] Thin content (${analysis.contentLength} chars), re-rendering with Playwright: ${normalized}`
           );
-          const rendered = await this.playwrightCrawler.fetchPage(normalized);
+          const rendered = await this.playwrightCrawler.fetchPage(normalized, signal);
           if (rendered) {
             usedPlaywright = true;
             const renderedAnalysis = this.analyzer.analyze(
@@ -163,22 +175,20 @@ export class CrawlOrchestrator {
           }
         }
 
-        // Enqueue discovered links
-        if (current.depth < maxDepth) {
-          for (const link of result.discoveredLinks) {
-            if (!visited.has(normalizeUrl(link))) {
-              queue.push({ url: link, depth: current.depth + 1 });
-            }
-          }
+        // Enqueue discovered links; the frontier drops dupes and too-deep links.
+        for (const link of result.discoveredLinks) {
+          frontier.push(link, current.depth + 1);
         }
 
-        // Progress update every 5 pages
-        if (pagesCrawled % 5 === 0) {
+        // Progress at most once a second, however fast pages arrive.
+        const now = Date.now();
+        if (now - lastProgressAt >= PROGRESS_INTERVAL_MS) {
+          lastProgressAt = now;
           const progress = Math.floor((pagesCrawled / maxPages) * 100);
           await this.updateJobProgress(
             jobId,
             progress,
-            queue.length + pagesCrawled,
+            frontier.discovered,
             pagesCrawled,
             pagesMatched
           );
@@ -189,15 +199,17 @@ export class CrawlOrchestrator {
             progress,
             pagesCrawled,
             pagesMatched,
-            pagesDiscovered: queue.length + pagesCrawled,
+            pagesDiscovered: frontier.discovered,
           });
         }
 
         // Crawl delay to be polite
         const delay = await this.robotsService.getCrawlDelay(normalized);
         const actualDelay = usedPlaywright ? Math.max(delay, 2000) : Math.max(delay, 500);
-        await this.sleep(actualDelay);
+        await this.sleep(actualDelay, signal);
       }
+
+      const cancelled = signal?.aborted === true;
 
       // Cache a size-bounded snapshot of the most-weighted page and flag it as
       // the primary result. Re-runs clear any previous primary first.
@@ -216,12 +228,20 @@ export class CrawlOrchestrator {
         );
       }
 
-      // Final update
-      await this.updateJobProgress(jobId, 100, visited.size, pagesCrawled, pagesMatched);
+      // Final update. A cancelled crawl keeps its real progress instead of 100%.
+      const finalProgress = cancelled ? Math.floor((pagesCrawled / maxPages) * 100) : 100;
+      await this.updateJobProgress(
+        jobId,
+        finalProgress,
+        frontier.discovered,
+        pagesCrawled,
+        pagesMatched
+      );
 
       logger.info(
-        `[Job ${jobId}] Crawl complete. Pages: ${pagesCrawled}, Matched: ${pagesMatched}`
+        `[Job ${jobId}] Crawl ${cancelled ? 'cancelled' : 'complete'}. Pages: ${pagesCrawled}, Matched: ${pagesMatched}`
       );
+      return { cancelled };
     } finally {
       // Always release the browser context, even when the crawl throws.
       await this.playwrightCrawler.close();
@@ -243,7 +263,17 @@ export class CrawlOrchestrator {
     });
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  /** Resolves after `ms`, or immediately when the signal aborts. */
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      if (signal?.aborted) return resolve();
+      const done = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      signal?.addEventListener('abort', done, { once: true });
+    });
   }
 }

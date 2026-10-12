@@ -14,11 +14,12 @@ import {
 } from '@/features/crawl/crawlApi';
 import { useJobSocket } from '@/hooks/useSocket';
 import { useAppSelector } from '@/app/hooks';
+import { resolveStatus } from '@/features/crawl/crawlSlice';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { formatDateTime } from '@/lib/utils';
 import type { CrawlJobStatus } from '@/lib/types';
 
-const ACTIVE: CrawlJobStatus[] = ['pending', 'queued', 'running'];
+const ACTIVE: CrawlJobStatus[] = ['pending', 'queued', 'running', 'cancelling'];
 
 export default function JobDetail() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -56,13 +57,13 @@ export default function JobDetail() {
   }
 
   const job = jobQuery.data.data.job;
-  const status = live?.status ?? job.status;
+  const status = resolveStatus(live, job.status);
   const progress = live?.progress ?? job.progress;
   const pagesCrawled = live?.pagesCrawled ?? job.pagesCrawled;
   const pagesMatched = live?.pagesMatched ?? job.pagesMatched;
   const pagesDiscovered = live?.pagesDiscovered ?? job.pagesDiscovered;
   const isActive = ACTIVE.includes(status);
-  const canCancel = status === 'pending' || status === 'queued';
+  const canCancel = status === 'pending' || status === 'queued' || status === 'running';
 
   const results = resultsQuery.data?.data.results ?? [];
   const resultsPagination = resultsQuery.data?.data.pagination;

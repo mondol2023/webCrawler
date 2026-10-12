@@ -6,6 +6,7 @@ export type CrawlJobStatus =
   | 'pending'
   | 'queued'
   | 'running'
+  | 'cancelling'
   | 'completed'
   | 'failed'
   | 'cancelled';

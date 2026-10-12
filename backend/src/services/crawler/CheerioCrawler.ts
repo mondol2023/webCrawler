@@ -30,11 +30,12 @@ const MAX_CONTENT_LENGTH = 5 * 1024 * 1024; // 5MB safety cap
  * fails or requires JS rendering.
  */
 export class CheerioCrawler {
-  async fetchPage(url: string): Promise<CrawlPageResult | null> {
+  async fetchPage(url: string, signal?: AbortSignal): Promise<CrawlPageResult | null> {
     try {
       const response = await axios.get<string>(url, {
         ...publicAgents(),
         timeout: REQUEST_TIMEOUT,
+        signal,
         maxContentLength: MAX_CONTENT_LENGTH,
         maxRedirects: 5,
         responseType: 'text',

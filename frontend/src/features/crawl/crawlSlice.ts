@@ -11,6 +11,19 @@ interface CrawlState {
   live: Record<string, LiveJobState>;
 }
 
+/**
+ * Status to show for a job: the live socket state, except that a persisted
+ * `cancelling` beats a live `running` (progress events keep arriving until the
+ * worker notices the cancel and stamp `running` on the live entry).
+ */
+export function resolveStatus(
+  live: LiveJobState | undefined,
+  persisted: CrawlJobStatus
+): CrawlJobStatus {
+  if (persisted === 'cancelling' && (!live || live.status === 'running')) return 'cancelling';
+  return live?.status ?? persisted;
+}
+
 const initialState: CrawlState = {
   live: {},
 };
@@ -52,6 +65,10 @@ const crawlSlice = createSlice({
         live.error = action.payload.error;
       }
     },
+    jobCancelled(state, action: PayloadAction<{ jobId: string }>) {
+      const live = state.live[action.payload.jobId];
+      if (live) live.status = 'cancelled';
+    },
     clearLiveJob(state, action: PayloadAction<string>) {
       delete state.live[action.payload];
     },
@@ -63,6 +80,7 @@ export const {
   jobStarted,
   jobCompleted,
   jobFailed,
+  jobCancelled,
   clearLiveJob,
 } = crawlSlice.actions;
 export default crawlSlice.reducer;

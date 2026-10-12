@@ -6,13 +6,14 @@ import {
   jobStarted,
   jobCompleted,
   jobFailed,
+  jobCancelled,
 } from '@/features/crawl/crawlSlice';
 import type { JobProgress } from '@/lib/types';
 
 /**
  * Subscribes to realtime updates for a single crawl job. Joins the job's room
  * on mount, dispatches incoming events into the crawl slice, and cleans up on
- * unmount. `onSettled` fires when the job completes or fails (e.g. to refetch).
+ * unmount. `onSettled` fires when the job completes, fails or is cancelled (e.g. to refetch).
  */
 export function useJobSocket(
   jobId: string | undefined,
@@ -47,11 +48,18 @@ export function useJobSocket(
         onSettled?.();
       }
     };
+    const handleCancelled = (payload: { jobId: string }) => {
+      if (payload.jobId === jobId) {
+        dispatch(jobCancelled(payload));
+        onSettled?.();
+      }
+    };
 
     socket.on('job:progress', handleProgress);
     socket.on('job:started', handleStarted);
     socket.on('job:completed', handleCompleted);
     socket.on('job:failed', handleFailed);
+    socket.on('job:cancelled', handleCancelled);
 
     return () => {
       socket.emit('leave:job', jobId);
@@ -60,6 +68,7 @@ export function useJobSocket(
       socket.off('job:started', handleStarted);
       socket.off('job:completed', handleCompleted);
       socket.off('job:failed', handleFailed);
+      socket.off('job:cancelled', handleCancelled);
     };
   }, [jobId, dispatch, onSettled]);
 }
